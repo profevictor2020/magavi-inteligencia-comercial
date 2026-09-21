@@ -30,6 +30,12 @@ RUN DJANGO_SETTINGS_MODULE=config.settings.development \
     && chmod +x /app/scripts/start.sh \
     && chown -R magavi:magavi /app
 
+# Fail the image build if production middleware (including WhiteNoise) cannot boot.
+RUN DJANGO_SETTINGS_MODULE=config.settings.production \
+    DJANGO_SECRET_KEY=build-only-secret-key-not-for-production \
+    DATABASE_URL=postgresql://magavi:magavi@localhost:5432/magavi \
+    python -c "import sys; sys.path.insert(0, '/app/backend'); import config.wsgi"
+
 USER magavi
 EXPOSE 8000
 
