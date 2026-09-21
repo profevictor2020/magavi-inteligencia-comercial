@@ -92,7 +92,7 @@ En otra terminal:
 
 ```bash
 cd frontend
-npm ci
+npm install --no-audit --no-fund
 npm run dev
 ```
 
@@ -127,10 +127,12 @@ La configuración `config.settings.test` usa SQLite en memoria únicamente cuand
 `.github/workflows/ci.yml` se ejecuta en cada pull request y push hacia `main`, con tres trabajos independientes:
 
 - **Backend:** Python 3.13, PostgreSQL 16 de servicio, instalación de dependencias, pytest, system checks y verificación de migraciones.
-- **Frontend:** Node.js 22 LTS, instalación reproducible mediante `npm ci`, pruebas Vitest y build Vite/PWA.
+- **Frontend:** Node.js 22 LTS, instalación temporal mediante `npm install --no-audit --no-fund`, pruebas Vitest y build Vite/PWA.
 - **Docker:** construcción local de la imagen sin autenticarse ni publicarla en ningún registro.
 
-El proxy del entorno de Codex impidió resolver npm y completar una instalación normal. Por ello no se añadieron hashes ni metadatos inventados a `package-lock.json`: el trabajo Frontend de GitHub Actions es la validación autoritativa de que el lockfile sea aceptado por `npm ci`. Si ese paso falla, se debe regenerar el lockfile mediante `npm install` en un entorno con acceso al registro, revisar el diff completo y confirmarlo; nunca se debe editar a mano para forzar el resultado.
+El `package-lock.json` anterior fue eliminado porque Codex no pudo acceder al registro npm y el archivo quedó incompleto, sin el árbol de dependencias necesario para `npm ci`. Las dependencias directas continúan fijadas con versiones exactas en `frontend/package.json`. Mientras no exista un lockfile real, CI y Docker usan temporalmente `npm install --no-audit --no-fund`.
+
+Antes del piloto se debe ejecutar `npm install` en un entorno con acceso a npm, versionar el `package-lock.json` completo que genere npm, revisar su diff y volver a utilizar `npm ci` en desarrollo, CI y Docker. No se deben inventar ni editar manualmente hashes o metadatos del lockfile.
 
 ## Cómo se sirve React desde Django
 
