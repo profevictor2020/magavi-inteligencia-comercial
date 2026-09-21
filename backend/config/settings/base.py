@@ -3,8 +3,6 @@ from pathlib import Path
 
 import dj_database_url
 
-from config.headers import add_whitenoise_headers
-
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 REPOSITORY_DIR = BACKEND_DIR.parent
 FRONTEND_DIST_DIR = BACKEND_DIR / "frontend_dist"
@@ -92,7 +90,7 @@ STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
 }
-WHITENOISE_ADD_HEADERS_FUNCTION = add_whitenoise_headers
+WHITENOISE_ADD_HEADERS_FUNCTION = "config.headers.add_whitenoise_headers"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
