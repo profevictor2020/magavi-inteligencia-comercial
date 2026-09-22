@@ -3,31 +3,76 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
 
-describe('App', () => {
+const companyA = {
+  name: 'Empresa A',
+  description: 'Descripción pública A',
+  headline: 'Propuesta de Empresa A',
+  logo_path: '/static/demo/empresa-a.svg',
+  theme: { primary: '#145C5A', secondary: '#F1A950' },
+  contact: { email: 'a@example.test', phone: '+56 9 0000 0001' },
+  featured_offerings: [{ name: 'Servicio A', description: 'Contenido sintético A' }],
+  is_demo: false,
+}
+
+const companyB = {
+  ...companyA,
+  name: 'Empresa B',
+  headline: 'Propuesta de Empresa B',
+  logo_path: '/static/demo/empresa-b.svg',
+  featured_offerings: [{ name: 'Servicio B', description: 'Contenido sintético B' }],
+}
+
+function mockJson(data: unknown, ok = true) {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok, json: async () => data }))
+}
+
+describe('multi-tenant application routes', () => {
   afterEach(() => {
-    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    window.history.replaceState({}, '', '/')
   })
 
-  it('shows the MAGAVI foundation and a successful health check', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ status: 'ok', database: 'ok' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
-
+  it('renders company A public landing', async () => {
+    mockJson(companyA)
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: /mejores oportunidades/i })).toBeInTheDocument()
-    expect(await screen.findByText('Aplicación y base de datos disponibles')).toBeInTheDocument()
-    expect(fetch).toHaveBeenCalledWith('/api/health/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    expect(await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })).toBeInTheDocument()
+    expect(screen.getByText('Servicio A')).toBeInTheDocument()
+    expect(screen.queryByText('Empresa B')).not.toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledWith('/api/public/landing/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
 
-  it('shows a useful message when the health endpoint fails', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network unavailable'))
-
+  it('renders company B public landing', async () => {
+    mockJson(companyB)
     render(<App />)
 
-    expect(await screen.findByText('No fue posible consultar la plataforma')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Propuesta de Empresa B' })).toBeInTheDocument()
+    expect(screen.getByText('Servicio B')).toBeInTheDocument()
+    expect(screen.queryByText('Servicio A')).not.toBeInTheDocument()
+  })
+
+  it('renders the controlled demo returned for an unknown hostname', async () => {
+    mockJson({ ...companyA, name: 'Empresa demostrativa', headline: 'Experiencia demo', is_demo: true })
+    render(<App />)
+
+    expect(await screen.findByText('SITIO DEMOSTRATIVO')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Experiencia demo' })).toBeInTheDocument()
+  })
+
+  it('protects /app/ when the tenant context request is denied', async () => {
+    window.history.replaceState({}, '', '/app/')
+    mockJson({}, false)
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Necesitas iniciar sesión' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ir al acceso' })).toHaveAttribute('href', '/app/login/')
+  })
+
+  it('renders the login route independently', () => {
+    window.history.replaceState({}, '', '/app/login/')
+    render(<App />)
+
+    expect(screen.getByRole('heading', { name: 'Ingresa a tu espacio comercial' })).toBeInTheDocument()
+    expect(vi.isMockFunction(globalThis.fetch)).toBe(false)
   })
 })

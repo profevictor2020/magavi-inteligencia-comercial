@@ -33,7 +33,7 @@ jobs:
       DJANGO_SETTINGS_MODULE: config.settings.test
       DJANGO_SECRET_KEY: test-only-secret-key-not-for-production
       DEBUG: "false"
-      ALLOWED_HOSTS: localhost,127.0.0.1
+      ALLOWED_HOSTS: localhost,.localhost,127.0.0.1,testserver
       DATABASE_URL: postgresql://magavi_test:test-only-password@127.0.0.1:5432/magavi_test
     defaults:
       run:

@@ -1,104 +1,182 @@
-import { useEffect, useState } from 'react'
+import { type CSSProperties, useEffect, useState } from 'react'
 
-type Health = {
-  status: 'ok' | 'unavailable'
-  database: 'ok' | 'unavailable'
+type Offering = { name: string; description: string }
+type LandingData = {
+  name: string
+  description: string
+  headline: string
+  logo_path: string
+  theme: { primary: string; secondary: string }
+  contact: { email: string; phone: string }
+  featured_offerings: Offering[]
+  is_demo: boolean
 }
 
-type HealthState =
-  | { phase: 'loading' }
-  | { phase: 'ready'; health: Health }
-  | { phase: 'error' }
+type TenantContext = {
+  id: string
+  name: string
+  role: 'OWNER' | 'ADMIN' | 'STAFF' | 'VIEWER'
+}
 
-export default function App() {
-  const [healthState, setHealthState] = useState<HealthState>({ phase: 'loading' })
+type LoadState<T> = { phase: 'loading' } | { phase: 'ready'; data: T } | { phase: 'error' }
+
+const jsonHeaders = { Accept: 'application/json' }
+
+function Brand({ name, logo }: { name: string; logo: string }) {
+  return (
+    <a className="brand" href="/" aria-label={`${name}, inicio`}>
+      <img src={logo} alt="" width="44" height="44" />
+      <span>{name}</span>
+    </a>
+  )
+}
+
+function PublicLanding() {
+  const [state, setState] = useState<LoadState<LandingData>>({ phase: 'loading' })
 
   useEffect(() => {
     const controller = new AbortController()
-
-    async function checkHealth() {
-      try {
-        const response = await fetch('/api/health/', {
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        })
-        if (!response.ok) throw new Error('Health check unavailable')
-        setHealthState({ phase: 'ready', health: (await response.json()) as Health })
-      } catch (error) {
+    fetch('/api/public/landing/', { headers: jsonHeaders, signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Landing unavailable')
+        setState({ phase: 'ready', data: (await response.json()) as LandingData })
+      })
+      .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
-        setHealthState({ phase: 'error' })
-      }
-    }
-
-    void checkHealth()
+        setState({ phase: 'error' })
+      })
     return () => controller.abort()
   }, [])
 
-  const isReady = healthState.phase === 'ready' && healthState.health.database === 'ok'
+  if (state.phase === 'loading') {
+    return <main className="centered-state" role="status">Preparando la experiencia…</main>
+  }
+  if (state.phase === 'error') {
+    return <main className="centered-state error-state">No pudimos cargar esta empresa. Inténtalo nuevamente.</main>
+  }
+
+  const tenant = state.data
+  const theme = {
+    '--tenant-primary': tenant.theme.primary,
+    '--tenant-secondary': tenant.theme.secondary,
+  } as CSSProperties
 
   return (
-    <main className="page-shell">
-      <nav className="topbar" aria-label="Navegación principal">
-        <a className="brand" href="/" aria-label="MAGAVI inicio">
-          <img src="/static/magavi-mark.svg" alt="" width="38" height="38" />
-          <span>MAGAVI</span>
-        </a>
-        <span className="phase-pill">Fundaciones · MVP</span>
+    <main className="tenant-site" style={theme}>
+      <nav className="public-nav" aria-label="Navegación pública">
+        <Brand name={tenant.name} logo={tenant.logo_path} />
+        <a className="app-link" href="/app/login/">Acceso equipo</a>
       </nav>
 
-      <section className="hero">
-        <div className="eyebrow">INTELIGENCIA COMERCIAL TERRITORIAL</div>
-        <h1>Una base sólida para descubrir mejores oportunidades.</h1>
-        <p className="intro">
-          El núcleo técnico de MAGAVI ya conecta la experiencia web, la API y la base de datos en una sola
-          aplicación preparada para crecer de forma segura.
-        </p>
-
-        <div className="status-card" role="status" aria-live="polite">
-          <div className={`status-icon ${isReady ? 'is-ready' : ''}`} aria-hidden="true">
-            {healthState.phase === 'loading' ? '…' : isReady ? '✓' : '!'}
-          </div>
-          <div>
-            <span className="status-label">Estado de la plataforma</span>
-            <strong>
-              {healthState.phase === 'loading' && 'Comprobando servicios…'}
-              {isReady && 'Aplicación y base de datos disponibles'}
-              {healthState.phase === 'ready' && !isReady && 'Base de datos no disponible'}
-              {healthState.phase === 'error' && 'No fue posible consultar la plataforma'}
-            </strong>
-          </div>
-          <span className={`signal ${isReady ? 'is-ready' : ''}`} aria-hidden="true" />
+      <section className="tenant-hero">
+        <div className="hero-copy">
+          <span className="eyebrow">{tenant.is_demo ? 'SITIO DEMOSTRATIVO' : 'BIENVENIDOS'}</span>
+          <h1>{tenant.headline}</h1>
+          <p>{tenant.description}</p>
+          {(tenant.contact.email || tenant.contact.phone) && (
+            <div className="contact-row" aria-label="Datos de contacto">
+              {tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}
+              {tenant.contact.phone && <span>{tenant.contact.phone}</span>}
+            </div>
+          )}
+        </div>
+        <div className="hero-mark" aria-hidden="true">
+          <img src={tenant.logo_path} alt="" />
         </div>
       </section>
 
-      <section className="foundation" aria-labelledby="foundation-title">
-        <div>
-          <span className="section-number">01</span>
-          <h2 id="foundation-title">Fundaciones verificables</h2>
+      <section className="offerings" aria-labelledby="offerings-title">
+        <div className="section-heading">
+          <span>LO DESTACADO</span>
+          <h2 id="offerings-title">Productos y servicios</h2>
         </div>
-        <div className="foundation-grid">
-          <article>
-            <span>Experiencia</span>
-            <h3>React PWA</h3>
-            <p>Interfaz responsive, instalable y preparada para evolucionar sin fragmentar el producto.</p>
-          </article>
-          <article>
-            <span>Núcleo</span>
-            <h3>Django + DRF</h3>
-            <p>Un monolito modular para mantener contratos, permisos y trazabilidad en un solo lugar.</p>
-          </article>
-          <article>
-            <span>Persistencia</span>
-            <h3>PostgreSQL</h3>
-            <p>Datos relacionales y migraciones versionadas desde el primer incremento.</p>
-          </article>
+        <div className="offering-grid">
+          {tenant.featured_offerings.map((offering, index) => (
+            <article key={`${offering.name}-${index}`}>
+              <span className="offering-number">0{index + 1}</span>
+              <h3>{offering.name}</h3>
+              <p>{offering.description}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      <footer>
-        <span>MAGAVI SpA</span>
-        <span>Entorno demostrativo · Sin datos reales</span>
+      <footer className="public-footer">
+        <span>{tenant.name}</span>
+        <span>{tenant.is_demo ? 'Contenido sintético de demostración' : 'Sitio impulsado por MAGAVI'}</span>
       </footer>
     </main>
   )
+}
+
+function PrivateApp() {
+  const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/tenant/context/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Authentication required')
+        setState({ phase: 'ready', data: (await response.json()) as TenantContext })
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setState({ phase: 'error' })
+      })
+    return () => controller.abort()
+  }, [])
+
+  if (state.phase === 'loading') return <main className="centered-state">Verificando acceso…</main>
+  if (state.phase === 'error') {
+    return (
+      <main className="private-shell">
+        <Brand name="MAGAVI" logo="/static/magavi-mark.svg" />
+        <section className="access-card">
+          <span className="eyebrow">ÁREA PRIVADA</span>
+          <h1>Necesitas iniciar sesión</h1>
+          <p>Esta ruta está protegida y requiere una membresía activa para el dominio actual.</p>
+          <a className="primary-action" href="/app/login/">Ir al acceso</a>
+        </section>
+      </main>
+    )
+  }
+
+  return (
+    <main className="private-shell">
+      <Brand name={state.data.name} logo="/static/magavi-mark.svg" />
+      <section className="access-card">
+        <span className="eyebrow">ÁREA PRIVADA</span>
+        <h1>Hola, equipo de {state.data.name}</h1>
+        <p>Tu rol activo es {state.data.role}. Los módulos comerciales se habilitarán en próximos incrementos.</p>
+      </section>
+    </main>
+  )
+}
+
+function LoginPage() {
+  return (
+    <main className="login-shell">
+      <a href="/" className="back-link">← Volver al sitio</a>
+      <section className="login-card">
+        <Brand name="MAGAVI" logo="/static/magavi-mark.svg" />
+        <div>
+          <span className="eyebrow">ACCESO SEGURO</span>
+          <h1>Ingresa a tu espacio comercial</h1>
+          <p>La autenticación de usuarios se conectará en el siguiente incremento.</p>
+        </div>
+        <form aria-label="Formulario de acceso" onSubmit={(event) => event.preventDefault()}>
+          <label>Correo electrónico<input type="email" autoComplete="email" disabled /></label>
+          <label>Contraseña<input type="password" autoComplete="current-password" disabled /></label>
+          <button type="submit" disabled>Acceso próximamente</button>
+        </form>
+      </section>
+    </main>
+  )
+}
+
+export default function App() {
+  const path = window.location.pathname
+  if (path === '/app/login' || path === '/app/login/') return <LoginPage />
+  if (path === '/app' || path.startsWith('/app/')) return <PrivateApp />
+  return <PublicLanding />
 }
