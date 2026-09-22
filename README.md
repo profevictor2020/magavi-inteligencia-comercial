@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, un área privada protegida, Django Admin y health check. **No incluye todavía importación de catálogo, matching, cotizaciones, CRM, ventas ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, un catálogo comercial inicial, un área privada protegida, Django Admin y health check. **No incluye todavía importación Excel/CSV, matching, cotizaciones, CRM, ventas ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -17,6 +17,7 @@ Navegador ──► Django + DRF + WhiteNoise ──► PostgreSQL
 - `frontend/`: React, TypeScript, Vite y service worker PWA.
 - `backend/`: Django, Django REST Framework, configuración por ambiente y aplicaciones modulares.
 - `backend/apps/accounts/`: modelo de usuario personalizado desde la primera migración.
+- `backend/apps/catalog/`: categorías y productos comerciales aislados por tenant.
 - `backend/apps/health/`: comprobación pública y mínima de aplicación/base de datos.
 - `backend/apps/tenancy/`: tenants, membresías, dominios, resolución segura, permisos y API pública/privada.
 - `Dockerfile`: build multi-stage; compila React y crea una imagen Python no privilegiada.
@@ -93,7 +94,7 @@ En otra terminal:
 
 ```bash
 cd frontend
-npm install --no-audit --no-fund
+npm ci --no-audit --no-fund
 npm run dev
 ```
 
@@ -128,7 +129,11 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/auth/session/` | Público | Estado de sesión y token CSRF; nunca entrega credenciales |
 | `/api/auth/login/` | Público + CSRF | Crea una sesión solo si usuario, tenant y membership están activos |
 | `/api/auth/logout/` | Sesión + CSRF | Invalida la sesión actual |
-| `/api/public/landing/` | Público | Configuración pública del tenant del hostname |
+| `/api/public/landing/` | Público | Configuración pública y productos publicados del tenant del hostname |
+| `/api/catalog/categories/` | Privado | Lista/crea categorías del tenant actual |
+| `/api/catalog/categories/<uuid>/` | Privado | Consulta/edita una categoría del tenant actual |
+| `/api/catalog/products/` | Privado | Lista/crea productos del tenant actual |
+| `/api/catalog/products/<uuid>/` | Privado | Consulta/edita/elimina y publica un producto del tenant actual |
 | `/api/tenant/context/` | Privado | Configuración del tenant y rol del usuario actual |
 | `/api/tenants/<uuid>/` | Privado | Lectura/edición aislada al tenant del hostname |
 | `/api/health/` | Público | Salud de aplicación y base de datos |
@@ -139,6 +144,10 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 La autenticación utiliza sesiones de Django y cookies del mismo origen; React no guarda tokens ni contraseñas en `localStorage`. Antes de enviar credenciales, `/app/login/` obtiene un token CSRF desde `/api/auth/session/`. El backend valida el correo y contraseña, el tenant resuelto exclusivamente desde el hostname y una `Membership` activa para ese tenant. Las respuestas de error son deliberadamente genéricas para no permitir enumeración de usuarios.
 
 Una cuenta válida en empresa A no puede iniciar sesión desde el dominio de empresa B. Después del login, cada endpoint privado vuelve a aplicar permisos de tenant y rol: la sesión por sí sola no concede acceso. En producción, las cookies de sesión y CSRF se sirven como seguras mediante las variables ya definidas en `render.yaml`.
+
+### Catálogo comercial
+
+El área privada permite crear categorías y productos, registrar SKU, formato, precio y disponibilidad, y decidir qué productos se publican. Solo `OWNER` y `ADMIN` pueden modificar el catálogo; `STAFF` y `VIEWER` conservan acceso de lectura. La API asigna siempre el tenant desde el hostname resuelto, no desde datos enviados por el navegador, y rechaza categorías pertenecientes a otra empresa. La landing expone únicamente productos publicados, disponibles y asociados a categorías activas.
 
 ## Pruebas y validaciones
 
@@ -169,12 +178,10 @@ La configuración `config.settings.test` usa SQLite en memoria únicamente cuand
 `.github/workflows/ci.yml` se ejecuta en cada pull request y push hacia `main`, con tres trabajos independientes:
 
 - **Backend:** Python 3.13, PostgreSQL 16 de servicio, instalación de dependencias, pytest, system checks y verificación de migraciones.
-- **Frontend:** Node.js 22 LTS, instalación temporal mediante `npm install --no-audit --no-fund`, pruebas Vitest y build Vite/PWA.
+- **Frontend:** Node.js 22 LTS, instalación reproducible mediante `npm ci --no-audit --no-fund`, pruebas Vitest y build Vite/PWA.
 - **Docker:** construcción local de la imagen sin autenticarse ni publicarla en ningún registro.
 
-El `package-lock.json` anterior fue eliminado porque Codex no pudo acceder al registro npm y el archivo quedó incompleto, sin el árbol de dependencias necesario para `npm ci`. Las dependencias directas continúan fijadas con versiones exactas en `frontend/package.json`. Mientras no exista un lockfile real, CI y Docker usan temporalmente `npm install --no-audit --no-fund`.
-
-Antes del piloto se debe ejecutar `npm install` en un entorno con acceso a npm, versionar el `package-lock.json` completo que genere npm, revisar su diff y volver a utilizar `npm ci` en desarrollo, CI y Docker. No se deben inventar ni editar manualmente hashes o metadatos del lockfile.
+El `package-lock.json` completo se versiona junto con `package.json`; desarrollo, CI y Docker utilizan ese mismo árbol mediante `npm ci`.
 
 ## Cómo se sirve React desde Django
 

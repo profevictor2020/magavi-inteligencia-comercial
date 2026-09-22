@@ -9,7 +9,26 @@ type LandingData = {
   theme: { primary: string; secondary: string }
   contact: { email: string; phone: string }
   featured_offerings: Offering[]
+  products: PublicProduct[]
   is_demo: boolean
+}
+
+type PublicProduct = {
+  id: string
+  name: string
+  description: string
+  sku: string
+  format: string
+  price: string | null
+  category: string
+}
+
+type Category = { id: string; name: string; description: string; is_active: boolean }
+type Product = PublicProduct & {
+  category: string
+  category_name: string
+  is_available: boolean
+  is_published: boolean
 }
 
 type TenantContext = {
@@ -125,6 +144,21 @@ function PublicLanding() {
             </article>
           ))}
         </div>
+        {tenant.products.length > 0 && (
+          <div className="product-grid" aria-label="Catálogo publicado">
+            {tenant.products.map((product) => (
+              <article className="product-card" key={product.id}>
+                <span className="card-kicker">{product.category}</span>
+                <h3>{product.name}</h3>
+                <p>{product.description || product.format}</p>
+                <div className="product-meta">
+                  {product.format && <span>{product.format}</span>}
+                  {product.price && <strong>${Number(product.price).toLocaleString('es-CL')}</strong>}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="contact-banner" id="contacto">
@@ -147,13 +181,28 @@ function PublicLanding() {
 
 function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
+  const [categories, setCategories] = useState<Category[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [csrfToken, setCsrfToken] = useState('')
+  const [catalogError, setCatalogError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
     fetch('/api/tenant/context/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
-        setState({ phase: 'ready', data: (await response.json()) as TenantContext })
+        const tenant = (await response.json()) as TenantContext
+        const [categoryResponse, productResponse, sessionResponse] = await Promise.all([
+          fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+        ])
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok) throw new Error('Catalog unavailable')
+        const session = (await sessionResponse.json()) as AuthSession
+        setCategories((await categoryResponse.json()) as Category[])
+        setProducts((await productResponse.json()) as Product[])
+        setCsrfToken(session.csrf_token ?? '')
+        setState({ phase: 'ready', data: tenant })
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
@@ -177,16 +226,102 @@ function PrivateApp() {
     )
   }
 
+  const canEdit = state.data.role === 'OWNER' || state.data.role === 'ADMIN'
+
+  async function createCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const response = await catalogRequest('/api/catalog/categories/', 'POST', {
+      name: form.get('name'),
+      description: form.get('description'),
+      is_active: true,
+    })
+    if (response) {
+      setCategories((current) => [...current, response as Category].sort((a, b) => a.name.localeCompare(b.name)))
+      formElement.reset()
+    }
+  }
+
+  async function createProduct(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const price = String(form.get('price') ?? '').trim()
+    const response = await catalogRequest('/api/catalog/products/', 'POST', {
+      category: form.get('category'),
+      name: form.get('name'),
+      sku: form.get('sku'),
+      description: form.get('description'),
+      format: form.get('format'),
+      price: price || null,
+      is_available: true,
+      is_published: false,
+    })
+    if (response) {
+      setProducts((current) => [...current, response as Product].sort((a, b) => a.name.localeCompare(b.name)))
+      formElement.reset()
+    }
+  }
+
+  async function togglePublished(product: Product) {
+    const response = await catalogRequest(`/api/catalog/products/${product.id}/`, 'PATCH', {
+      is_published: !product.is_published,
+    })
+    if (response) setProducts((current) => current.map((item) => item.id === product.id ? response as Product : item))
+  }
+
+  async function catalogRequest(url: string, method: 'POST' | 'PATCH', body: object) {
+    setCatalogError('')
+    const response = await fetch(url, {
+      method,
+      credentials: 'same-origin',
+      headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      body: JSON.stringify(body),
+    })
+    if (!response.ok) {
+      setCatalogError('No fue posible guardar. Revisa los datos e inténtalo nuevamente.')
+      return null
+    }
+    return response.json() as Promise<unknown>
+  }
+
   return (
     <main className="private-shell">
       <div className="private-nav">
         <Brand name={state.data.name} logo="/static/magavi-mark.svg" />
         <LogoutButton />
       </div>
-      <section className="access-card">
+      <section className="private-heading">
         <span className="eyebrow">ÁREA PRIVADA</span>
         <h1>Hola, equipo de {state.data.name}</h1>
-        <p>Tu rol activo es {state.data.role}. Los módulos comerciales se habilitarán en próximos incrementos.</p>
+        <p>Tu rol activo es {state.data.role}. Administra el catálogo comercial de esta empresa.</p>
+      </section>
+      {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
+      {canEdit && (
+        <section className="catalog-forms" aria-label="Crear elementos del catálogo">
+          <form className="catalog-form" onSubmit={createCategory}>
+            <div><span className="eyebrow">PASO 1</span><h2>Nueva categoría</h2></div>
+            <label>Nombre<input name="name" required maxLength={120} /></label>
+            <label>Descripción<textarea name="description" maxLength={500} /></label>
+            <button type="submit" disabled={!csrfToken}>Crear categoría</button>
+          </form>
+          <form className="catalog-form" onSubmit={createProduct}>
+            <div><span className="eyebrow">PASO 2</span><h2>Nuevo producto</h2></div>
+            <label>Categoría<select name="category" required defaultValue=""><option value="" disabled>Selecciona una categoría</option>{categories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label>Nombre<input name="name" required maxLength={160} /></label>
+            <div className="form-row"><label>SKU<input name="sku" required maxLength={80} /></label><label>Formato<input name="format" maxLength={120} placeholder="Ej. Caja 12 unidades" /></label></div>
+            <label>Descripción<textarea name="description" maxLength={1000} /></label>
+            <label>Precio<input name="price" type="number" min="0" step="0.01" /></label>
+            <button type="submit" disabled={!csrfToken || categories.length === 0}>Crear producto</button>
+          </form>
+        </section>
+      )}
+      <section className="catalog-list" aria-labelledby="catalog-title">
+        <div className="catalog-list-heading"><div><span className="eyebrow">CATÁLOGO</span><h2 id="catalog-title">Productos de {state.data.name}</h2></div><strong>{products.length} producto{products.length === 1 ? '' : 's'}</strong></div>
+        {products.length === 0 ? <p className="empty-catalog">Todavía no hay productos. Crea una categoría y luego agrega el primero.</p> : (
+          <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}{product.format ? ` · ${product.format}` : ''}</small></td><td>{product.category_name}</td><td>{product.price ? `$${Number(product.price).toLocaleString('es-CL')}` : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{canEdit ? <button className={`publish-button ${product.is_published ? 'is-published' : ''}`} type="button" onClick={() => togglePublished(product)}>{product.is_published ? 'Publicado' : 'Publicar'}</button> : product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>
+        )}
       </section>
     </main>
   )

@@ -1,5 +1,8 @@
 from rest_framework import serializers
 
+from apps.catalog.models import Product
+from apps.catalog.serializers import PublicProductSerializer
+
 from .models import Tenant
 
 
@@ -7,6 +10,7 @@ class PublicTenantLandingSerializer(serializers.ModelSerializer):
     theme = serializers.SerializerMethodField()
     contact = serializers.SerializerMethodField()
     is_demo = serializers.SerializerMethodField()
+    products = serializers.SerializerMethodField()
 
     class Meta:
         model = Tenant
@@ -18,6 +22,7 @@ class PublicTenantLandingSerializer(serializers.ModelSerializer):
             "theme",
             "contact",
             "featured_offerings",
+            "products",
             "is_demo",
         )
 
@@ -29,6 +34,15 @@ class PublicTenantLandingSerializer(serializers.ModelSerializer):
 
     def get_is_demo(self, obj):
         return False
+
+    def get_products(self, obj):
+        products = Product.objects.filter(
+            tenant=obj,
+            category__is_active=True,
+            is_available=True,
+            is_published=True,
+        ).select_related("category")
+        return PublicProductSerializer(products, many=True).data
 
 
 class TenantPrivateSerializer(serializers.ModelSerializer):

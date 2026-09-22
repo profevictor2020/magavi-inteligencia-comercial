@@ -11,6 +11,15 @@ const companyA = {
   theme: { primary: '#145C5A', secondary: '#F1A950' },
   contact: { email: 'a@example.test', phone: '+56 9 0000 0001' },
   featured_offerings: [{ name: 'Servicio A', description: 'Contenido sintético A' }],
+  products: [{
+    id: 'product-a',
+    name: 'Café premium',
+    description: 'Café para negocios',
+    sku: 'CAFE-001',
+    format: 'Caja 12 unidades',
+    price: '24990.00',
+    category: 'Abarrotes',
+  }],
   is_demo: false,
 }
 
@@ -38,6 +47,7 @@ describe('multi-tenant application routes', () => {
 
     expect(await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })).toBeInTheDocument()
     expect(screen.getByText('Servicio A')).toBeInTheDocument()
+    expect(screen.getByText('Café premium')).toBeInTheDocument()
     expect(screen.queryByText('Empresa B')).not.toBeInTheDocument()
     expect(fetch).toHaveBeenCalledWith('/api/public/landing/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
@@ -66,6 +76,27 @@ describe('multi-tenant application routes', () => {
 
     expect(await screen.findByRole('heading', { name: 'Necesitas iniciar sesión' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Ir al acceso' })).toHaveAttribute('href', '/app/login/')
+  })
+
+  it('shows the tenant catalog controls to an owner', async () => {
+    window.history.replaceState({}, '', '/app/')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/')
+        ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/categories/')
+          ? [{ id: 'category-a', name: 'Abarrotes', description: '', is_active: true }]
+          : url.includes('/products/')
+            ? [{ ...companyA.products[0], category: 'category-a', category_name: 'Abarrotes', is_available: true, is_published: false }]
+            : { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Productos de Empresa A' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Nueva categoría' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Nuevo producto' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publicar' })).toBeInTheDocument()
   })
 
   it('loads a CSRF token and enables the tenant login form', async () => {
