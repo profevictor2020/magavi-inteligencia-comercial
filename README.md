@@ -125,11 +125,20 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/` | Público | Landing del tenant resuelto por hostname o demo segura |
 | `/app/` | Privado | Shell de la aplicación; exige sesión y membership activa |
 | `/app/login/` | Público | Pantalla inicial de acceso |
+| `/api/auth/session/` | Público | Estado de sesión y token CSRF; nunca entrega credenciales |
+| `/api/auth/login/` | Público + CSRF | Crea una sesión solo si usuario, tenant y membership están activos |
+| `/api/auth/logout/` | Sesión + CSRF | Invalida la sesión actual |
 | `/api/public/landing/` | Público | Configuración pública del tenant del hostname |
 | `/api/tenant/context/` | Privado | Configuración del tenant y rol del usuario actual |
 | `/api/tenants/<uuid>/` | Privado | Lectura/edición aislada al tenant del hostname |
 | `/api/health/` | Público | Salud de aplicación y base de datos |
 | `/admin/` | Administradores | Django Admin |
+
+### Autenticación multiempresa
+
+La autenticación utiliza sesiones de Django y cookies del mismo origen; React no guarda tokens ni contraseñas en `localStorage`. Antes de enviar credenciales, `/app/login/` obtiene un token CSRF desde `/api/auth/session/`. El backend valida el correo y contraseña, el tenant resuelto exclusivamente desde el hostname y una `Membership` activa para ese tenant. Las respuestas de error son deliberadamente genéricas para no permitir enumeración de usuarios.
+
+Una cuenta válida en empresa A no puede iniciar sesión desde el dominio de empresa B. Después del login, cada endpoint privado vuelve a aplicar permisos de tenant y rol: la sesión por sí sola no concede acceso. En producción, las cookies de sesión y CSRF se sirven como seguras mediante las variables ya definidas en `render.yaml`.
 
 ## Pruebas y validaciones
 

@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from 'react'
+import { type CSSProperties, type FormEvent, useEffect, useState } from 'react'
 
 type Offering = { name: string; description: string }
 type LandingData = {
@@ -16,6 +16,12 @@ type TenantContext = {
   id: string
   name: string
   role: 'OWNER' | 'ADMIN' | 'STAFF' | 'VIEWER'
+}
+
+type AuthSession = {
+  authenticated: boolean
+  csrf_token?: string
+  tenant?: TenantContext
 }
 
 type LoadState<T> = { phase: 'loading' } | { phase: 'ready'; data: T } | { phase: 'error' }
@@ -173,7 +179,10 @@ function PrivateApp() {
 
   return (
     <main className="private-shell">
-      <Brand name={state.data.name} logo="/static/magavi-mark.svg" />
+      <div className="private-nav">
+        <Brand name={state.data.name} logo="/static/magavi-mark.svg" />
+        <LogoutButton />
+      </div>
       <section className="access-card">
         <span className="eyebrow">ÁREA PRIVADA</span>
         <h1>Hola, equipo de {state.data.name}</h1>
@@ -183,7 +192,73 @@ function PrivateApp() {
   )
 }
 
+function LogoutButton() {
+  const [submitting, setSubmitting] = useState(false)
+
+  async function logout() {
+    setSubmitting(true)
+    try {
+      const sessionResponse = await fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin' })
+      const session = (await sessionResponse.json()) as AuthSession
+      const response = await fetch('/api/auth/logout/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'X-CSRFToken': session.csrf_token ?? '' },
+      })
+      if (!response.ok) throw new Error('Logout unavailable')
+      window.location.assign('/app/login/')
+    } catch {
+      setSubmitting(false)
+    }
+  }
+
+  return <button className="logout-button" type="button" onClick={logout} disabled={submitting}>{submitting ? 'Saliendo…' : 'Cerrar sesión'}</button>
+}
+
 function LoginPage() {
+  const [csrfToken, setCsrfToken] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [phase, setPhase] = useState<'loading' | 'ready' | 'submitting' | 'error'>('loading')
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Session unavailable')
+        const session = (await response.json()) as AuthSession
+        if (session.authenticated) {
+          window.location.assign('/app/')
+          return
+        }
+        setCsrfToken(session.csrf_token ?? '')
+        setPhase('ready')
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setPhase('error')
+      })
+    return () => controller.abort()
+  }, [])
+
+  async function submitLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setPhase('submitting')
+    try {
+      const response = await fetch('/api/auth/login/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ email, password }),
+      })
+      if (!response.ok) throw new Error('Invalid credentials')
+      window.location.assign('/app/')
+    } catch {
+      setPassword('')
+      setPhase('error')
+    }
+  }
+
   return (
     <main className="login-shell">
       <a href="/" className="back-link">← Volver al sitio</a>
@@ -192,12 +267,13 @@ function LoginPage() {
         <div>
           <span className="eyebrow">ACCESO SEGURO</span>
           <h1>Ingresa a tu espacio comercial</h1>
-          <p>La autenticación de usuarios se conectará en el siguiente incremento.</p>
+          <p>Utiliza las credenciales asociadas a esta empresa. El acceso está aislado por dominio y membresía.</p>
         </div>
-        <form aria-label="Formulario de acceso" onSubmit={(event) => event.preventDefault()}>
-          <label>Correo electrónico<input type="email" autoComplete="email" disabled /></label>
-          <label>Contraseña<input type="password" autoComplete="current-password" disabled /></label>
-          <button type="submit" disabled>Acceso próximamente</button>
+        <form aria-label="Formulario de acceso" onSubmit={submitLogin}>
+          <label>Correo electrónico<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={phase === 'loading' || phase === 'submitting'} /></label>
+          <label>Contraseña<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required disabled={phase === 'loading' || phase === 'submitting'} /></label>
+          {phase === 'error' && <p className="form-error" role="alert">No fue posible iniciar sesión. Revisa tus datos e inténtalo nuevamente.</p>}
+          <button type="submit" disabled={phase === 'loading' || phase === 'submitting' || !csrfToken}>{phase === 'submitting' ? 'Ingresando…' : 'Ingresar'}</button>
         </form>
       </section>
     </main>
