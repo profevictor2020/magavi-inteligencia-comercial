@@ -18,6 +18,7 @@ DEMO_LANDING = {
     "featured_offerings": [
         {"name": "Servicio demostrativo", "description": "Contenido sintético para validar la plataforma."},
     ],
+    "products": [],
     "is_demo": True,
 }
 
