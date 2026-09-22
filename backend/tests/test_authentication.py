@@ -6,6 +6,13 @@ from rest_framework.test import APIClient
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
 
+def test_admin_route_is_owned_by_django_not_the_spa():
+    response = APIClient().get("/admin/")
+
+    assert response.status_code == 302
+    assert response.url.startswith("/admin/login/")
+
+
 @pytest.fixture
 def auth_context(db):
     tenant_a = Tenant.objects.create(
@@ -140,4 +147,3 @@ def test_invalid_email_and_invalid_password_return_same_error(auth_context):
 
     assert [response.status_code for response in responses] == [400, 400]
     assert responses[0].json() == responses[1].json()
-

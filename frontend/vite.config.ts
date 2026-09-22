@@ -10,6 +10,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       scope: '/',
       includeAssets: ['magavi-mark.svg'],
+      workbox: {
+        // Django owns these routes. Never satisfy their navigations with the SPA shell.
+        navigateFallbackDenylist: [/^\/admin(?:\/|$)/, /^\/api(?:\/|$)/, /^\/static(?:\/|$)/],
+      },
       manifest: {
         name: 'MAGAVI Inteligencia Comercial',
         short_name: 'MAGAVI',
