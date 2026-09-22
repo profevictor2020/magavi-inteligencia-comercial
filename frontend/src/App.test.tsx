@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
@@ -68,11 +68,32 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('link', { name: 'Ir al acceso' })).toHaveAttribute('href', '/app/login/')
   })
 
-  it('renders the login route independently', () => {
+  it('loads a CSRF token and enables the tenant login form', async () => {
     window.history.replaceState({}, '', '/app/login/')
+    mockJson({ authenticated: false, csrf_token: 'synthetic-csrf-token' })
     render(<App />)
 
     expect(screen.getByRole('heading', { name: 'Ingresa a tu espacio comercial' })).toBeInTheDocument()
-    expect(vi.isMockFunction(globalThis.fetch)).toBe(false)
+    expect(await screen.findByRole('button', { name: 'Ingresar' })).toBeEnabled()
+    expect(fetch).toHaveBeenCalledWith('/api/auth/session/', expect.objectContaining({ credentials: 'same-origin' }))
+  })
+
+  it('submits credentials with CSRF and shows a generic login error', async () => {
+    window.history.replaceState({}, '', '/app/login/')
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ authenticated: false, csrf_token: 'synthetic-csrf-token' }) })
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ detail: 'generic error' }) }))
+    render(<App />)
+
+    fireEvent.change(screen.getByLabelText('Correo electrónico'), { target: { value: 'user@example.test' } })
+    fireEvent.change(screen.getByLabelText('Contraseña'), { target: { value: 'not-a-real-password' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Ingresar' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('No fue posible iniciar sesión')
+    expect(fetch).toHaveBeenLastCalledWith('/api/auth/login/', expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({ 'X-CSRFToken': 'synthetic-csrf-token' }),
+      body: JSON.stringify({ email: 'user@example.test', password: 'not-a-real-password' }),
+    }))
   })
 })

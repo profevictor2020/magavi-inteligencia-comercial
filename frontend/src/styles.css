@@ -88,7 +88,9 @@ h1, h2, h3, p { margin-top: 0; }
 .centered-state, .private-shell, .login-shell { min-height: 100vh; padding: 40px max(24px, calc((100vw - 980px) / 2)); background: #f4f7f5; }
 .centered-state { display: grid; place-items: center; font-weight: 700; }
 .error-state { color: #9f3232; }
-.private-shell > .brand { margin-bottom: 15vh; }
+.private-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15vh; }
+.logout-button { padding: 10px 14px; border: 1px solid #cad4d7; border-radius: 9px; color: #263a43; background: white; font-weight: 700; cursor: pointer; }
+.logout-button:disabled { cursor: wait; opacity: .65; }
 .access-card, .login-card { max-width: 720px; padding: clamp(30px, 6vw, 62px); border-radius: 28px; background: white; box-shadow: 0 24px 70px rgba(22, 52, 61, .1); }
 .access-card h1, .login-card h1 { margin: 20px 0; font-size: clamp(2.3rem, 5vw, 4rem); letter-spacing: -.05em; }
 .access-card p, .login-card p { margin-bottom: 32px; color: #60727c; line-height: 1.65; }
@@ -97,7 +99,9 @@ h1, h2, h3, p { margin-top: 0; }
 .login-card form { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
 .login-card label { display: grid; gap: 8px; font-weight: 700; }
 .login-card input { width: 100%; padding: 13px; border: 1px solid #cad4d7; border-radius: 10px; background: #f6f8f7; }
-.login-card button { grid-column: 1 / -1; padding: 14px; border: 0; border-radius: 10px; color: white; background: #9aabaa; }
+.login-card button { grid-column: 1 / -1; padding: 14px; border: 0; border-radius: 10px; color: white; background: #0d766e; font-weight: 750; cursor: pointer; }
+.login-card button:disabled { background: #9aabaa; cursor: not-allowed; }
+.form-error { grid-column: 1 / -1; margin: 0; color: #9f3232; font-size: .9rem; font-weight: 650; }
 .back-link { font-weight: 700; }
 
 @media (max-width: 940px) {
