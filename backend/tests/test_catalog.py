@@ -2,6 +2,7 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -40,6 +41,11 @@ def authenticated_client(user):
     client = APIClient()
     client.force_authenticate(user)
     return client
+
+
+def catalog_csv(*rows):
+    header = "sku,nombre,categoria,descripcion,formato,precio,disponible,publicar\n"
+    return SimpleUploadedFile("catalogo.csv", (header + "\n".join(rows) + "\n").encode(), content_type="text/csv")
 
 
 @pytest.mark.django_db
@@ -143,3 +149,112 @@ def test_public_landing_contains_only_published_available_products(catalog_conte
     assert response.status_code == 200
     assert [product["name"] for product in response.json()["products"]] == ["Producto publicado"]
     assert response.json()["products"][0]["category"] == "Abarrotes"
+
+
+@pytest.mark.django_db
+def test_csv_preview_then_confirmation_is_transactional(catalog_context):
+    tenant_a, _, owner, _, _, _ = catalog_context
+    client = authenticated_client(owner)
+    preview = client.post(
+        reverse("catalog-import-preview"),
+        {"file": catalog_csv("NUEVO-1,Producto nuevo,Nueva categoría,Descripción,Caja 10,12500,sí,no")},
+        format="multipart",
+        HTTP_HOST="catalog-a.localhost",
+    )
+
+    assert preview.status_code == 200
+    assert preview.json()["valid"] is True
+    assert preview.json()["summary"] == {"total": 1, "create": 1, "update": 0, "errors": 0, "warnings": 0}
+    assert Product.objects.count() == 0
+
+    confirmation = client.post(
+        reverse("catalog-import-confirm"),
+        {"token": preview.json()["token"]},
+        format="json",
+        HTTP_HOST="catalog-a.localhost",
+    )
+    assert confirmation.status_code == 200
+    assert confirmation.json() == {"created": 1, "updated": 0, "total": 1}
+    product = Product.objects.get(tenant=tenant_a, sku="NUEVO-1")
+    assert product.category.name == "Nueva categoría"
+    assert product.price == Decimal("12500.00")
+
+
+@pytest.mark.django_db
+def test_csv_reimport_updates_by_sku_without_duplicates(catalog_context):
+    tenant_a, _, owner, _, category_a, _ = catalog_context
+    Product.objects.create(tenant=tenant_a, category=category_a, name="Nombre anterior", sku="SKU-1", price="100.00")
+    client = authenticated_client(owner)
+    preview = client.post(
+        reverse("catalog-import-preview"),
+        {"file": catalog_csv("SKU-1,Nombre actualizado,Abarrotes,,Caja,200,si,si")},
+        format="multipart",
+        HTTP_HOST="catalog-a.localhost",
+    )
+    assert preview.json()["rows"][0]["action"] == "actualizar"
+
+    response = client.post(
+        reverse("catalog-import-confirm"),
+        {"token": preview.json()["token"]},
+        format="json",
+        HTTP_HOST="catalog-a.localhost",
+    )
+
+    assert response.json() == {"created": 0, "updated": 1, "total": 1}
+    assert Product.objects.filter(tenant=tenant_a, sku="SKU-1").count() == 1
+    product = Product.objects.get(tenant=tenant_a, sku="SKU-1")
+    assert product.name == "Nombre actualizado"
+    assert product.is_published is True
+
+
+@pytest.mark.django_db
+def test_invalid_csv_returns_row_errors_and_cannot_be_confirmed(catalog_context):
+    _, _, owner, _, _, _ = catalog_context
+    client = authenticated_client(owner)
+    response = client.post(
+        reverse("catalog-import-preview"),
+        {"file": catalog_csv("BAD-1,,Abarrotes,,,-20,quizás,sí")},
+        format="multipart",
+        HTTP_HOST="catalog-a.localhost",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+    assert response.json()["token"] is None
+    assert response.json()["summary"]["errors"] == 1
+    assert len(response.json()["rows"][0]["errors"]) == 3
+    assert Product.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_import_preview_token_cannot_cross_tenants(catalog_context):
+    _, tenant_b, owner, _, _, _ = catalog_context
+    user_b = get_user_model().objects.create_user("owner-b", "owner-b@example.test", "password")
+    Membership.objects.create(tenant=tenant_b, user=user_b, role=Membership.Role.OWNER)
+    client = authenticated_client(owner)
+    preview = client.post(
+        reverse("catalog-import-preview"),
+        {"file": catalog_csv("SAFE-1,Producto,Abarrotes,,Caja,100,sí,no")},
+        format="multipart",
+        HTTP_HOST="catalog-a.localhost",
+    )
+    client.force_authenticate(user_b)
+
+    response = client.post(
+        reverse("catalog-import-confirm"),
+        {"token": preview.json()["token"]},
+        format="json",
+        HTTP_HOST="catalog-b.localhost",
+    )
+    assert response.status_code == 400
+    assert Product.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_catalog_csv_template_has_expected_headers(catalog_context):
+    _, _, owner, _, _, _ = catalog_context
+    response = authenticated_client(owner).get(reverse("catalog-import-template"), HTTP_HOST="catalog-a.localhost")
+
+    assert response.status_code == 200
+    assert response["Content-Disposition"] == 'attachment; filename="plantilla-catalogo.csv"'
+    assert response.content.decode().splitlines()[0] == "sku,nombre,categoria,descripcion,formato,precio,disponible,publicar"

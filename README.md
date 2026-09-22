@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, un catálogo comercial inicial, un área privada protegida, Django Admin y health check. **No incluye todavía importación Excel/CSV, matching, cotizaciones, CRM, ventas ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, un área privada protegida, Django Admin y health check. **No incluye todavía importación Excel, matching, cotizaciones, CRM, ventas ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -134,6 +134,9 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/catalog/categories/<uuid>/` | Privado | Consulta/edita una categoría del tenant actual |
 | `/api/catalog/products/` | Privado | Lista/crea productos del tenant actual |
 | `/api/catalog/products/<uuid>/` | Privado | Consulta/edita/elimina y publica un producto del tenant actual |
+| `/api/catalog/import/template/` | Privado | Descarga la plantilla CSV oficial |
+| `/api/catalog/import/preview/` | OWNER/ADMIN + CSRF | Valida un CSV y genera una vista previa temporal |
+| `/api/catalog/import/confirm/` | OWNER/ADMIN + CSRF | Confirma transaccionalmente una vista previa válida |
 | `/api/tenant/context/` | Privado | Configuración del tenant y rol del usuario actual |
 | `/api/tenants/<uuid>/` | Privado | Lectura/edición aislada al tenant del hostname |
 | `/api/health/` | Público | Salud de aplicación y base de datos |
@@ -148,6 +151,8 @@ Una cuenta válida en empresa A no puede iniciar sesión desde el dominio de emp
 ### Catálogo comercial
 
 El área privada permite crear categorías y productos, registrar SKU, formato, precio y disponibilidad, y decidir qué productos se publican. Solo `OWNER` y `ADMIN` pueden modificar el catálogo; `STAFF` y `VIEWER` conservan acceso de lectura. La API asigna siempre el tenant desde el hostname resuelto, no desde datos enviados por el navegador, y rechaza categorías pertenecientes a otra empresa. La landing expone únicamente productos publicados, disponibles y asociados a categorías activas.
+
+La carga masiva usa la plantilla CSV descargable con las columnas `sku,nombre,categoria,descripcion,formato,precio,disponible,publicar`. El archivo se valida en memoria y muestra acciones, advertencias y errores antes de modificar la base. Una vista previa válida queda asociada temporalmente a la sesión y al tenant; al confirmarla, Django crea o actualiza por SKU dentro de una sola transacción. Repetir una carga actualiza los productos existentes, no elimina productos ausentes y no genera duplicados.
 
 ## Pruebas y validaciones
 

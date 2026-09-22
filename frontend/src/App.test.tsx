@@ -99,6 +99,40 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('button', { name: 'Publicar' })).toBeInTheDocument()
   })
 
+  it('previews and confirms a CSV catalog import', async () => {
+    window.history.replaceState({}, '', '/app/')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      let payload: unknown
+      if (url.includes('/tenant/context/')) payload = { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+      else if (url.includes('/auth/session/')) payload = { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+      else if (url.includes('/import/preview/')) payload = {
+        valid: true,
+        token: 'preview-token',
+        rows: [{ row: 2, sku: 'NEW-1', name: 'Producto importado', category: 'Abarrotes', price: '100.00', action: 'crear', errors: [], warnings: [] }],
+        summary: { total: 1, create: 1, update: 0, errors: 0, warnings: 0 },
+      }
+      else if (url.includes('/import/confirm/')) payload = { created: 1, updated: 0, total: 1 }
+      else if (url.includes('/categories/')) payload = [{ id: 'category-a', name: 'Abarrotes', description: '', is_active: true }]
+      else payload = []
+      return Promise.resolve({ ok: true, json: async () => payload, requestInit: init })
+    }))
+    render(<App />)
+
+    const fileInput = await screen.findByLabelText('Archivo CSV')
+    const csv = new File(['sku,nombre,categoria,descripcion,formato,precio,disponible,publicar\nNEW-1,Producto importado,Abarrotes,,Caja,100,sí,no\n'], 'catalogo.csv', { type: 'text/csv' })
+    fireEvent.change(fileInput, { target: { files: [csv] } })
+    fireEvent.submit(fileInput.closest('form') as HTMLFormElement)
+
+    expect(await screen.findByText('Producto importado')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar importación' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('1 creados y 0 actualizados')
+    expect(fetch).toHaveBeenCalledWith('/api/catalog/import/confirm/', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ token: 'preview-token' }),
+    }))
+  })
+
   it('loads a CSRF token and enables the tenant login form', async () => {
     window.history.replaceState({}, '', '/app/login/')
     mockJson({ authenticated: false, csrf_token: 'synthetic-csrf-token' })
