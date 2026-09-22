@@ -63,16 +63,24 @@ function PublicLanding() {
 
   return (
     <main className="tenant-site" style={theme}>
-      <nav className="public-nav" aria-label="Navegación pública">
-        <Brand name={tenant.name} logo={tenant.logo_path} />
-        <a className="app-link" href="/app/login/">Acceso equipo</a>
-      </nav>
+      <header className="site-header">
+        <nav className="public-nav page-width" aria-label="Navegación pública">
+          <Brand name={tenant.name} logo={tenant.logo_path} />
+          <div className="nav-links">
+            <a href="#empresa">Empresa</a>
+            <a href="#productos">Productos y servicios</a>
+            <a href="#contacto">Contacto</a>
+          </div>
+          <a className="app-link" href="/app/login/">Acceso equipo <span aria-hidden="true">↗</span></a>
+        </nav>
+      </header>
 
-      <section className="tenant-hero">
+      <section className="tenant-hero page-width" id="empresa">
         <div className="hero-copy">
           <span className="eyebrow">{tenant.is_demo ? 'SITIO DEMOSTRATIVO' : 'BIENVENIDOS'}</span>
           <h1>{tenant.headline}</h1>
           <p>{tenant.description}</p>
+          <a className="hero-action" href="#productos">Conoce nuestra propuesta <span aria-hidden="true">→</span></a>
           {(tenant.contact.email || tenant.contact.phone) && (
             <div className="contact-row" aria-label="Datos de contacto">
               {tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}
@@ -80,29 +88,51 @@ function PublicLanding() {
             </div>
           )}
         </div>
-        <div className="hero-mark" aria-hidden="true">
-          <img src={tenant.logo_path} alt="" />
+        <div className="hero-visual" aria-hidden="true">
+          <div className="visual-main"><img src={tenant.logo_path} alt="" /></div>
+          <div className="visual-detail visual-detail-top"><span>Calidad</span></div>
+          <div className="visual-detail visual-detail-bottom"><span>Confianza</span></div>
         </div>
       </section>
 
-      <section className="offerings" aria-labelledby="offerings-title">
+      <section className="value-strip" aria-label="Compromisos de la empresa">
+        <div className="page-width value-grid">
+          <div><strong>01</strong><span>Atención cercana</span></div>
+          <div><strong>02</strong><span>Soluciones confiables</span></div>
+          <div><strong>03</strong><span>Experiencia especializada</span></div>
+        </div>
+      </section>
+
+      <section className="offerings page-width" id="productos" aria-labelledby="offerings-title">
         <div className="section-heading">
-          <span>LO DESTACADO</span>
-          <h2 id="offerings-title">Productos y servicios</h2>
+          <div><span>NUESTRA OFERTA</span><h2 id="offerings-title">Productos y servicios</h2></div>
+          <p>Una selección pensada para entregar calidad, continuidad y una atención que acompaña cada necesidad.</p>
         </div>
         <div className="offering-grid">
           {tenant.featured_offerings.map((offering, index) => (
             <article key={`${offering.name}-${index}`}>
-              <span className="offering-number">0{index + 1}</span>
+              <div className={`offering-art offering-art-${(index % 3) + 1}`} aria-hidden="true"><span>0{index + 1}</span></div>
+              <span className="card-kicker">DESTACADO</span>
               <h3>{offering.name}</h3>
               <p>{offering.description}</p>
+              <span className="card-link">Ver más <span aria-hidden="true">→</span></span>
             </article>
           ))}
         </div>
       </section>
 
-      <footer className="public-footer">
-        <span>{tenant.name}</span>
+      <section className="contact-banner" id="contacto">
+        <div className="page-width contact-banner-inner">
+          <div><span className="eyebrow">HABLEMOS</span><h2>Construyamos una gran relación comercial.</h2></div>
+          <div className="contact-actions">
+            {tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email} <span aria-hidden="true">↗</span></a>}
+            {tenant.contact.phone && <span>{tenant.contact.phone}</span>}
+          </div>
+        </div>
+      </section>
+
+      <footer className="public-footer page-width">
+        <Brand name={tenant.name} logo={tenant.logo_path} />
         <span>{tenant.is_demo ? 'Contenido sintético de demostración' : 'Sitio impulsado por MAGAVI'}</span>
       </footer>
     </main>
