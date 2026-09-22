@@ -31,6 +31,24 @@ type Product = PublicProduct & {
   is_published: boolean
 }
 
+type ImportRow = {
+  row: number
+  sku: string
+  name: string
+  category: string
+  price: string | null
+  action: 'crear' | 'actualizar'
+  errors: string[]
+  warnings: string[]
+}
+
+type ImportPreview = {
+  valid: boolean
+  token: string | null
+  rows: ImportRow[]
+  summary: { total: number; create: number; update: number; errors: number; warnings: number }
+}
+
 type TenantContext = {
   id: string
   name: string
@@ -179,6 +197,93 @@ function PublicLanding() {
   )
 }
 
+function CatalogImportPanel({ csrfToken, onConfirmed }: { csrfToken: string; onConfirmed: () => Promise<void> }) {
+  const [preview, setPreview] = useState<ImportPreview | null>(null)
+  const [phase, setPhase] = useState<'ready' | 'previewing' | 'confirming'>('ready')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  async function previewFile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    setPhase('previewing')
+    setError('')
+    setMessage('')
+    try {
+      const response = await fetch('/api/catalog/import/preview/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json', 'X-CSRFToken': csrfToken },
+        body: data,
+      })
+      const payload = await response.json() as ImportPreview | { detail: string }
+      if (!response.ok) {
+        setError('detail' in payload ? payload.detail : 'No fue posible revisar el archivo.')
+        setPreview(null)
+      } else {
+        setPreview(payload as ImportPreview)
+      }
+    } catch {
+      setError('No fue posible revisar el archivo. Inténtalo nuevamente.')
+      setPreview(null)
+    } finally {
+      setPhase('ready')
+    }
+  }
+
+  async function confirmImport() {
+    if (!preview?.token) return
+    setPhase('confirming')
+    setError('')
+    try {
+      const response = await fetch('/api/catalog/import/confirm/', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ token: preview.token }),
+      })
+      const payload = await response.json() as { created?: number; updated?: number; detail?: string }
+      if (!response.ok) {
+        setError(payload.detail ?? 'No fue posible confirmar la importación.')
+      } else {
+        await onConfirmed()
+        setMessage(`Importación completada: ${payload.created} creados y ${payload.updated} actualizados.`)
+        setPreview(null)
+      }
+    } catch {
+      setError('No fue posible confirmar la importación. Inténtalo nuevamente.')
+    } finally {
+      setPhase('ready')
+    }
+  }
+
+  return (
+    <section className="catalog-import" aria-labelledby="import-title">
+      <div className="catalog-import-heading">
+        <div><span className="eyebrow">CARGA MASIVA</span><h2 id="import-title">Importar productos desde CSV</h2></div>
+        <a className="template-link" href="/api/catalog/import/template/">Descargar plantilla</a>
+      </div>
+      <p>Completa la plantilla y revisa los cambios antes de aplicarlos. Una nueva carga actualiza productos con el mismo SKU sin duplicarlos.</p>
+      <form className="import-form" onSubmit={previewFile}>
+        <label>Archivo CSV<input name="file" type="file" accept=".csv,text/csv" required /></label>
+        <button type="submit" disabled={!csrfToken || phase !== 'ready'}>{phase === 'previewing' ? 'Revisando…' : 'Revisar archivo'}</button>
+      </form>
+      {error && <p className="catalog-error" role="alert">{error}</p>}
+      {message && <p className="catalog-success" role="status">{message}</p>}
+      {preview && (
+        <div className="import-preview">
+          <div className="import-summary">
+            <strong>{preview.summary.total} filas</strong><span>{preview.summary.create} nuevas</span><span>{preview.summary.update} actualizaciones</span><span>{preview.summary.errors} con errores</span>
+          </div>
+          <div className="catalog-table-wrap"><table><thead><tr><th>Fila</th><th>SKU / producto</th><th>Categoría</th><th>Acción</th><th>Revisión</th></tr></thead><tbody>{preview.rows.map((row) => <tr key={row.row} className={row.errors.length ? 'row-error' : ''}><td>{row.row}</td><td><strong>{row.sku || 'Sin SKU'}</strong><small>{row.name || 'Sin nombre'}</small></td><td>{row.category || '—'}</td><td>{row.action}</td><td>{row.errors.length ? row.errors.join(' ') : row.warnings.length ? row.warnings.join(' ') : 'Lista para importar'}</td></tr>)}</tbody></table></div>
+          <button className="confirm-import" type="button" onClick={confirmImport} disabled={!preview.valid || !preview.token || phase !== 'ready'}>{phase === 'confirming' ? 'Importando…' : 'Confirmar importación'}</button>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
   const [categories, setCategories] = useState<Category[]>([])
@@ -286,6 +391,16 @@ function PrivateApp() {
     return response.json() as Promise<unknown>
   }
 
+  async function refreshCatalog() {
+    const [categoryResponse, productResponse] = await Promise.all([
+      fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin' }),
+      fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin' }),
+    ])
+    if (!categoryResponse.ok || !productResponse.ok) throw new Error('Catalog unavailable')
+    setCategories((await categoryResponse.json()) as Category[])
+    setProducts((await productResponse.json()) as Product[])
+  }
+
   return (
     <main className="private-shell">
       <div className="private-nav">
@@ -298,6 +413,7 @@ function PrivateApp() {
         <p>Tu rol activo es {state.data.role}. Administra el catálogo comercial de esta empresa.</p>
       </section>
       {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
+      {canEdit && <CatalogImportPanel csrfToken={csrfToken} onConfirmed={refreshCatalog} />}
       {canEdit && (
         <section className="catalog-forms" aria-label="Crear elementos del catálogo">
           <form className="catalog-form" onSubmit={createCategory}>
