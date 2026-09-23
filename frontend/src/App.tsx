@@ -49,6 +49,18 @@ type ImportPreview = {
   summary: { total: number; create: number; update: number; errors: number; warnings: number }
 }
 
+type QuoteInquiry = {
+  id: string
+  full_name: string
+  company_name: string
+  email: string
+  phone: string
+  message: string
+  status: 'NEW' | 'CONTACTED' | 'CLOSED'
+  items: { product: string; product_name: string; product_sku: string; quantity: number }[]
+  created_at: string
+}
+
 type TenantContext = {
   id: string
   name: string
@@ -71,6 +83,71 @@ function Brand({ name, logo }: { name: string; logo: string }) {
       <img src={logo} alt="" width="44" height="44" />
       <span>{name}</span>
     </a>
+  )
+}
+
+function PublicQuoteForm({ products }: { products: PublicProduct[] }) {
+  const [phase, setPhase] = useState<'ready' | 'submitting' | 'success' | 'error'>('ready')
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([])
+
+  async function submitRequest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    if (selectedProducts.length === 0) {
+      setPhase('error')
+      return
+    }
+    setPhase('submitting')
+    const body = {
+      full_name: data.get('full_name'),
+      company_name: data.get('company_name'),
+      email: data.get('email'),
+      phone: data.get('phone'),
+      message: data.get('message'),
+      website: data.get('website'),
+      consent: data.get('consent') === 'on',
+      items: selectedProducts.map((product) => ({
+        product,
+        quantity: Number(data.get(`quantity-${product}`) || 1),
+      })),
+    }
+    try {
+      const response = await fetch('/api/inquiries/public/', {
+        method: 'POST',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) throw new Error('Request rejected')
+      form.reset()
+      setSelectedProducts([])
+      setPhase('success')
+    } catch {
+      setPhase('error')
+    }
+  }
+
+  return (
+    <form className="quote-form" onSubmit={submitRequest} aria-label="Solicitud de cotización">
+      <div className="quote-products">
+        <strong>Selecciona los productos</strong>
+        {products.map((product) => {
+          const selected = selectedProducts.includes(product.id)
+          return <div className={`quote-product ${selected ? 'is-selected' : ''}`} key={product.id}><label><input type="checkbox" value={product.id} checked={selected} onChange={(event) => setSelectedProducts((current) => event.target.checked ? [...current, product.id] : current.filter((id) => id !== product.id))} /><span><strong>{product.name}</strong><small>{product.format || product.category}</small></span></label>{selected && <label className="quantity-label">Cantidad<input name={`quantity-${product.id}`} type="number" min="1" max="100000" defaultValue="1" required /></label>}</div>
+        })}
+      </div>
+      <div className="quote-fields">
+        <label>Nombre completo<input name="full_name" maxLength={160} required /></label>
+        <label>Empresa<input name="company_name" maxLength={160} /></label>
+        <div className="form-row"><label>Correo electrónico<input name="email" type="email" /></label><label>Teléfono<input name="phone" maxLength={40} /></label></div>
+        <label>Mensaje<textarea name="message" maxLength={1500} /></label>
+        <label className="honeypot" aria-hidden="true">Sitio web<input name="website" tabIndex={-1} autoComplete="off" /></label>
+        <label className="consent-field"><input name="consent" type="checkbox" required /> Autorizo que esta empresa me contacte para responder mi solicitud.</label>
+        {phase === 'success' && <p className="quote-success" role="status">Solicitud enviada. El equipo comercial se pondrá en contacto contigo.</p>}
+        {phase === 'error' && <p className="quote-error" role="alert">No fue posible enviar la solicitud. Selecciona un producto, completa tus datos e inténtalo nuevamente.</p>}
+        <button type="submit" disabled={phase === 'submitting' || products.length === 0}>{phase === 'submitting' ? 'Enviando…' : 'Enviar solicitud'}</button>
+      </div>
+    </form>
   )
 }
 
@@ -187,6 +264,7 @@ function PublicLanding() {
             {tenant.contact.phone && <span>{tenant.contact.phone}</span>}
           </div>
         </div>
+        {tenant.products.length > 0 && <div className="page-width"><PublicQuoteForm products={tenant.products} /></div>}
       </section>
 
       <footer className="public-footer page-width">
@@ -288,6 +366,7 @@ function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [inquiries, setInquiries] = useState<QuoteInquiry[]>([])
   const [csrfToken, setCsrfToken] = useState('')
   const [catalogError, setCatalogError] = useState('')
 
@@ -297,16 +376,18 @@ function PrivateApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
         const tenant = (await response.json()) as TenantContext
-        const [categoryResponse, productResponse, sessionResponse] = await Promise.all([
+        const [categoryResponse, productResponse, sessionResponse, inquiryResponse] = await Promise.all([
           fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/inquiries/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
         ])
-        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok) throw new Error('Catalog unavailable')
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok) throw new Error('Private data unavailable')
         const session = (await sessionResponse.json()) as AuthSession
         setCategories((await categoryResponse.json()) as Category[])
         setProducts((await productResponse.json()) as Product[])
         setCsrfToken(session.csrf_token ?? '')
+        setInquiries((await inquiryResponse.json()) as QuoteInquiry[])
         setState({ phase: 'ready', data: tenant })
       })
       .catch((error: unknown) => {
@@ -401,6 +482,22 @@ function PrivateApp() {
     setProducts((await productResponse.json()) as Product[])
   }
 
+  async function updateInquiryStatus(inquiry: QuoteInquiry, status: QuoteInquiry['status']) {
+    setCatalogError('')
+    const response = await fetch(`/api/inquiries/${inquiry.id}/`, {
+      method: 'PATCH',
+      credentials: 'same-origin',
+      headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+      body: JSON.stringify({ status }),
+    })
+    if (!response.ok) {
+      setCatalogError('No fue posible actualizar la solicitud.')
+      return
+    }
+    const updated = await response.json() as QuoteInquiry
+    setInquiries((current) => current.map((item) => item.id === updated.id ? updated : item))
+  }
+
   return (
     <main className="private-shell">
       <div className="private-nav">
@@ -438,6 +535,10 @@ function PrivateApp() {
         {products.length === 0 ? <p className="empty-catalog">Todavía no hay productos. Crea una categoría y luego agrega el primero.</p> : (
           <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}{product.format ? ` · ${product.format}` : ''}</small></td><td>{product.category_name}</td><td>{product.price ? `$${Number(product.price).toLocaleString('es-CL')}` : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{canEdit ? <button className={`publish-button ${product.is_published ? 'is-published' : ''}`} type="button" onClick={() => togglePublished(product)}>{product.is_published ? 'Publicado' : 'Publicar'}</button> : product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>
         )}
+      </section>
+      <section className="catalog-list inquiry-list" aria-labelledby="inquiries-title">
+        <div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2 id="inquiries-title">Contactos y cotizaciones</h2></div><strong>{inquiries.length} solicitud{inquiries.length === 1 ? '' : 'es'}</strong></div>
+        {inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <article key={inquiry.id}><div className="inquiry-title"><div><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></div>{canEdit ? <select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => updateInquiryStatus(inquiry, event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select> : <span>{inquiry.status}</span>}</div><p>{inquiry.message || 'Sin mensaje adicional.'}</p><div className="inquiry-contact"><span>{inquiry.email || inquiry.phone}</span><time>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time></div><ul>{inquiry.items.map((item) => <li key={item.product}>{item.product_name} × {item.quantity}</li>)}</ul></article>)}</div>}
       </section>
     </main>
   )

@@ -47,7 +47,7 @@ describe('multi-tenant application routes', () => {
 
     expect(await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })).toBeInTheDocument()
     expect(screen.getByText('Servicio A')).toBeInTheDocument()
-    expect(screen.getByText('Café premium')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Café premium' })).toBeInTheDocument()
     expect(screen.queryByText('Empresa B')).not.toBeInTheDocument()
     expect(fetch).toHaveBeenCalledWith('/api/public/landing/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
@@ -69,6 +69,26 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Experiencia demo' })).toBeInTheDocument()
   })
 
+  it('sends a public quote request for selected products', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => companyA })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'quote-1' }) }))
+    render(<App />)
+
+    await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Café premium/ }))
+    fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Cliente de prueba' } })
+    fireEvent.change(screen.getByLabelText('Correo electrónico'), { target: { value: 'cliente@example.test' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Autorizo/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Solicitud enviada')
+    expect(fetch).toHaveBeenLastCalledWith('/api/inquiries/public/', expect.objectContaining({
+      method: 'POST',
+      body: expect.stringContaining('product-a'),
+    }))
+  })
+
   it('protects /app/ when the tenant context request is denied', async () => {
     window.history.replaceState({}, '', '/app/')
     mockJson({}, false)
@@ -84,6 +104,8 @@ describe('multi-tenant application routes', () => {
       const url = String(input)
       const payload = url.includes('/tenant/context/')
         ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/inquiries/')
+          ? []
         : url.includes('/categories/')
           ? [{ id: 'category-a', name: 'Abarrotes', description: '', is_active: true }]
           : url.includes('/products/')
@@ -97,6 +119,7 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Nueva categoría' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Nuevo producto' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publicar' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Contactos y cotizaciones' })).toBeInTheDocument()
   })
 
   it('previews and confirms a CSV catalog import', async () => {

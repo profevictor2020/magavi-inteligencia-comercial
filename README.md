@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, un área privada protegida, Django Admin y health check. **No incluye todavía importación Excel, matching, cotizaciones, CRM, ventas ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, un área privada protegida, Django Admin y health check. **No incluye todavía cotizaciones formales, matching, CRM, ventas ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -19,6 +19,7 @@ Navegador ──► Django + DRF + WhiteNoise ──► PostgreSQL
 - `backend/apps/accounts/`: modelo de usuario personalizado desde la primera migración.
 - `backend/apps/catalog/`: categorías y productos comerciales aislados por tenant.
 - `backend/apps/health/`: comprobación pública y mínima de aplicación/base de datos.
+- `backend/apps/inquiries/`: solicitudes públicas de contacto/cotización y seguimiento inicial por tenant.
 - `backend/apps/tenancy/`: tenants, membresías, dominios, resolución segura, permisos y API pública/privada.
 - `Dockerfile`: build multi-stage; compila React y crea una imagen Python no privilegiada.
 - `render.yaml`: un Web Service gratuito y una PostgreSQL gratuita.
@@ -137,6 +138,9 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/catalog/import/template/` | Privado | Descarga la plantilla CSV oficial |
 | `/api/catalog/import/preview/` | OWNER/ADMIN + CSRF | Valida un CSV y genera una vista previa temporal |
 | `/api/catalog/import/confirm/` | OWNER/ADMIN + CSRF | Confirma transaccionalmente una vista previa válida |
+| `/api/inquiries/public/` | Público limitado | Registra una solicitud para productos publicados del tenant actual |
+| `/api/inquiries/` | Privado | Lista solicitudes pertenecientes al tenant actual |
+| `/api/inquiries/<uuid>/` | Privado | Consulta una solicitud; OWNER/ADMIN puede cambiar su estado |
 | `/api/tenant/context/` | Privado | Configuración del tenant y rol del usuario actual |
 | `/api/tenants/<uuid>/` | Privado | Lectura/edición aislada al tenant del hostname |
 | `/api/health/` | Público | Salud de aplicación y base de datos |
@@ -153,6 +157,10 @@ Una cuenta válida en empresa A no puede iniciar sesión desde el dominio de emp
 El área privada permite crear categorías y productos, registrar SKU, formato, precio y disponibilidad, y decidir qué productos se publican. Solo `OWNER` y `ADMIN` pueden modificar el catálogo; `STAFF` y `VIEWER` conservan acceso de lectura. La API asigna siempre el tenant desde el hostname resuelto, no desde datos enviados por el navegador, y rechaza categorías pertenecientes a otra empresa. La landing expone únicamente productos publicados, disponibles y asociados a categorías activas.
 
 La carga masiva usa la plantilla CSV descargable con las columnas `sku,nombre,categoria,descripcion,formato,precio,disponible,publicar`. El archivo se valida en memoria y muestra acciones, advertencias y errores antes de modificar la base. Una vista previa válida queda asociada temporalmente a la sesión y al tenant; al confirmarla, Django crea o actualiza por SKU dentro de una sola transacción. Repetir una carga actualiza los productos existentes, no elimina productos ausentes y no genera duplicados.
+
+### Solicitudes comerciales
+
+La landing permite seleccionar productos publicados, indicar cantidades y enviar datos de contacto con consentimiento explícito. El backend acepta únicamente productos disponibles del tenant resuelto por hostname, conserva una copia del nombre y SKU solicitados, aplica un límite de solicitudes y utiliza un campo señuelo contra envíos automatizados. El área privada lista exclusivamente las solicitudes del tenant actual; `OWNER` y `ADMIN` pueden marcarlas como nuevas, contactadas o cerradas. Esta función captura intención comercial, pero todavía no calcula precios finales ni genera una cotización formal.
 
 ## Pruebas y validaciones
 
