@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.catalog",
     "apps.health",
+    "apps.inquiries",
     "apps.tenancy",
 ]
 
@@ -108,7 +109,7 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
-    "DEFAULT_THROTTLE_RATES": {"login": "20/minute"},
+    "DEFAULT_THROTTLE_RATES": {"login": "20/minute", "public-inquiry": "10/hour"},
 }
 
 SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", False)
