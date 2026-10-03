@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.prospecting.models import Prospect
+from apps.prospecting.models import Prospect, Territory
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
 
@@ -68,3 +68,38 @@ def test_filters_and_duplicate_warning(prospects):
     duplicate = api.post(reverse("prospect-list"), {**data("Otra razón social"), "website": "https://bahia.example", "email": "contacto@bahia.example"}, format="json", HTTP_HOST="prospect-a.localhost")
     assert duplicate.status_code == 201
     assert duplicate.json()["duplicate_warnings"][0]["matches"] == ["correo"]
+
+
+@pytest.mark.django_db
+def test_owner_manages_territories_with_coverage(prospects):
+    tenant, _, owner, _ = prospects
+    api = client(owner)
+    response = api.post(
+        reverse("territory-list"),
+        {"name": "Costa Valparaíso", "region": "Valparaíso", "localities": ["Viña del Mar", "Concón"], "prospect_goal": 4},
+        format="json",
+        HTTP_HOST="prospect-a.localhost",
+    )
+    assert response.status_code == 201
+    territory = Territory.objects.get()
+    Prospect.objects.create(tenant=tenant, territory=territory, **{**data("Prospecto revisado"), "status": Prospect.Status.REVIEWED})
+    Prospect.objects.create(tenant=tenant, territory=territory, **data("Prospecto nuevo"))
+
+    result = api.get(reverse("territory-list"), HTTP_HOST="prospect-a.localhost").json()[0]
+    assert result["prospect_count"] == 2
+    assert result["reviewed_count"] == 1
+    assert result["coverage_percentage"] == 50
+
+
+@pytest.mark.django_db
+def test_territory_assignment_is_tenant_isolated(prospects):
+    tenant_a, tenant_b, owner, _ = prospects
+    foreign = Territory.objects.create(tenant=tenant_b, name="Territorio B")
+    response = client(owner).post(
+        reverse("prospect-list"),
+        {**data(), "territory": str(foreign.id)},
+        format="json",
+        HTTP_HOST="prospect-a.localhost",
+    )
+    assert response.status_code == 400
+    assert not Prospect.objects.filter(tenant=tenant_a).exists()

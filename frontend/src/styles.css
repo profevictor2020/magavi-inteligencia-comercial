@@ -240,3 +240,48 @@ h1, h2, h3, p { margin-top: 0; }
 .prospect-grid article > p { margin: 16px 0; color: #536169; }
 .duplicate-warning { padding: 9px; border-radius: 7px; color: #7b5412 !important; background: #fff4d7; font-weight: 700; }
 @media (max-width: 720px) { .prospect-form, .prospect-grid { grid-template-columns: 1fr; } .prospect-form .wide-field { grid-column: auto; } }
+
+/* Private application workspace */
+.admin-shell { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 0; padding: 0; background: #f4f7f5; }
+.admin-sidebar { position: sticky; top: 0; display: flex; flex-direction: column; min-height: 100vh; height: 100vh; padding: 30px 22px; color: #eaf3f1; background: #17333b; }
+.admin-sidebar .brand { color: white; }
+.admin-sidebar nav { display: grid; gap: 6px; margin-top: 55px; }
+.admin-sidebar nav button { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 13px 14px; border: 0; border-radius: 10px; color: #bdd0d2; background: transparent; text-align: left; font-weight: 720; cursor: pointer; }
+.admin-sidebar nav button:hover, .admin-sidebar nav button.is-active { color: white; background: #0d766e; }
+.admin-sidebar nav span { min-width: 25px; padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.13); text-align: center; font-size: .7rem; }
+.sidebar-footer { display: grid; gap: 12px; margin-top: auto; }
+.sidebar-footer small { color: #91aeb1; font-weight: 800; letter-spacing: .12em; }
+.sidebar-footer .logout-button { width: 100%; color: white; border-color: rgba(255,255,255,.2); background: transparent; }
+.admin-content { min-width: 0; padding: 46px clamp(24px, 5vw, 74px); }
+.admin-content .private-heading { margin-bottom: 32px; }
+.summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.summary-grid button { display: grid; gap: 8px; min-height: 175px; padding: 28px; border: 1px solid #dfe6e4; border-radius: 18px; color: #273b43; background: white; text-align: left; cursor: pointer; box-shadow: 0 18px 50px rgba(22, 52, 61, .06); }
+.summary-grid button:hover { border-color: #0d766e; transform: translateY(-2px); }
+.summary-grid span { color: #0d766e; font-weight: 850; }
+.summary-grid strong { font-size: 2.8rem; line-height: 1; }
+.summary-grid small { color: #68777d; }
+.territory-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 24px; padding: 20px; border-radius: 12px; background: #f4f7f5; }
+.territory-form label { display: grid; gap: 6px; color: #344950; font-size: .8rem; font-weight: 750; }
+.territory-form input, .territory-form textarea, .prospect-form select { width: 100%; padding: 10px; border: 1px solid #cad4d7; border-radius: 8px; background: white; }
+.territory-form .wide-field { grid-column: 1 / -1; }
+.territory-form button { padding: 11px; border: 0; border-radius: 9px; color: white; background: #0d766e; font-weight: 750; cursor: pointer; }
+.territory-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.territory-grid article { padding: 22px; border: 1px solid #dfe6e4; border-radius: 14px; background: #f8faf9; }
+.territory-grid article > div:first-child { display: grid; gap: 4px; }
+.territory-grid small { color: #68777d; }
+.territory-grid p { min-height: 42px; margin: 18px 0; color: #536169; }
+.coverage-bar { height: 8px; overflow: hidden; border-radius: 999px; background: #dce7e4; }
+.coverage-bar span { display: block; height: 100%; border-radius: inherit; background: #0d766e; }
+.territory-grid footer { display: flex; gap: 12px; align-items: center; margin-top: 12px; color: #68777d; font-size: .76rem; }
+.territory-grid footer strong { margin-left: auto; color: #0d766e; }
+
+@media (max-width: 900px) {
+  .admin-shell { grid-template-columns: 1fr; }
+  .admin-sidebar { position: static; min-height: auto; height: auto; padding: 18px; }
+  .admin-sidebar nav { display: flex; margin-top: 22px; overflow-x: auto; }
+  .admin-sidebar nav button { width: auto; min-width: max-content; gap: 12px; }
+  .sidebar-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 18px; }
+  .sidebar-footer .logout-button { width: auto; }
+  .admin-content { padding: 30px 20px; }
+}
+@media (max-width: 620px) { .summary-grid, .territory-grid, .territory-form { grid-template-columns: 1fr; } .territory-form .wide-field { grid-column: auto; } }
