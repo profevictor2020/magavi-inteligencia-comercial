@@ -61,8 +61,12 @@ type QuoteInquiry = {
   created_at: string
 }
 
+type Territory = { id: string; name: string; description: string; region: string; localities: string[]; prospect_goal: number; is_active: boolean; prospect_count: number; reviewed_count: number; coverage_percentage: number }
+
 type Prospect = {
   id: string
+  territory: string | null
+  territory_name: string
   name: string
   industry: string
   address: string
@@ -385,6 +389,8 @@ function PrivateApp() {
   const [products, setProducts] = useState<Product[]>([])
   const [inquiries, setInquiries] = useState<QuoteInquiry[]>([])
   const [prospects, setProspects] = useState<Prospect[]>([])
+  const [territories, setTerritories] = useState<Territory[]>([])
+  const [activeSection, setActiveSection] = useState<'summary' | 'catalog' | 'prospects' | 'territories' | 'inquiries'>('summary')
   const [prospectSearch, setProspectSearch] = useState('')
   const [csrfToken, setCsrfToken] = useState('')
   const [catalogError, setCatalogError] = useState('')
@@ -395,20 +401,22 @@ function PrivateApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
         const tenant = (await response.json()) as TenantContext
-        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse] = await Promise.all([
+        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse, territoryResponse] = await Promise.all([
           fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/inquiries/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/prospects/territories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
         ])
-        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok) throw new Error('Private data unavailable')
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok || !territoryResponse.ok) throw new Error('Private data unavailable')
         const session = (await sessionResponse.json()) as AuthSession
         setCategories((await categoryResponse.json()) as Category[])
         setProducts((await productResponse.json()) as Product[])
         setCsrfToken(session.csrf_token ?? '')
         setInquiries((await inquiryResponse.json()) as QuoteInquiry[])
         setProspects((await prospectResponse.json()) as Prospect[])
+        setTerritories((await territoryResponse.json()) as Territory[])
         setState({ phase: 'ready', data: tenant })
       })
       .catch((error: unknown) => {
@@ -508,12 +516,27 @@ function PrivateApp() {
     const formElement = event.currentTarget
     const form = new FormData(formElement)
     const response = await catalogRequest('/api/prospects/', 'POST', {
-      name: form.get('name'), industry: form.get('industry'), city: form.get('city'), region: form.get('region'),
+      territory: form.get('territory') || null, name: form.get('name'), industry: form.get('industry'), address: form.get('address'), city: form.get('city'), region: form.get('region'),
       website: form.get('website'), email: form.get('email'), phone: form.get('phone'), source: form.get('source'),
       notes: form.get('notes'), verified_at: form.get('verified_at') || null, status: 'NEW',
     })
     if (response) {
       setProspects((current) => [...current, response as Prospect].sort((a, b) => a.name.localeCompare(b.name)))
+      formElement.reset()
+    }
+  }
+
+  async function createTerritory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const response = await catalogRequest('/api/prospects/territories/', 'POST', {
+      name: form.get('name'), description: form.get('description'), region: form.get('region'),
+      localities: String(form.get('localities') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      prospect_goal: Number(form.get('prospect_goal') || 0), is_active: true,
+    })
+    if (response) {
+      setTerritories((current) => [...current, response as Territory].sort((a, b) => a.name.localeCompare(b.name)))
       formElement.reset()
     }
   }
@@ -540,60 +563,57 @@ function PrivateApp() {
   }
 
   return (
-    <main className="private-shell">
-      <div className="private-nav">
+    <main className="private-shell admin-shell">
+      <aside className="admin-sidebar">
         <Brand name={state.data.name} logo="/static/magavi-mark.svg" />
-        <LogoutButton />
-      </div>
-      <section className="private-heading">
-        <span className="eyebrow">ÁREA PRIVADA</span>
-        <h1>Hola, equipo de {state.data.name}</h1>
-        <p>Tu rol activo es {state.data.role}. Administra el catálogo comercial de esta empresa.</p>
-      </section>
-      {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
-      {canEdit && <CatalogImportPanel csrfToken={csrfToken} onConfirmed={refreshCatalog} />}
-      {canEdit && (
-        <section className="catalog-forms" aria-label="Crear elementos del catálogo">
-          <form className="catalog-form" onSubmit={createCategory}>
-            <div><span className="eyebrow">PASO 1</span><h2>Nueva categoría</h2></div>
-            <label>Nombre<input name="name" required maxLength={120} /></label>
-            <label>Descripción<textarea name="description" maxLength={500} /></label>
-            <button type="submit" disabled={!csrfToken}>Crear categoría</button>
-          </form>
-          <form className="catalog-form" onSubmit={createProduct}>
-            <div><span className="eyebrow">PASO 2</span><h2>Nuevo producto</h2></div>
-            <label>Categoría<select name="category" required defaultValue=""><option value="" disabled>Selecciona una categoría</option>{categories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label>Nombre<input name="name" required maxLength={160} /></label>
-            <div className="form-row"><label>SKU<input name="sku" required maxLength={80} /></label><label>Formato<input name="format" maxLength={120} placeholder="Ej. Caja 12 unidades" /></label></div>
-            <label>Descripción<textarea name="description" maxLength={1000} /></label>
-            <label>Precio<input name="price" type="number" min="0" step="0.01" /></label>
-            <button type="submit" disabled={!csrfToken || categories.length === 0}>Crear producto</button>
-          </form>
+        <nav aria-label="Administración de la empresa">
+          <button className={activeSection === 'summary' ? 'is-active' : ''} onClick={() => setActiveSection('summary')}>Resumen</button>
+          <button className={activeSection === 'catalog' ? 'is-active' : ''} onClick={() => setActiveSection('catalog')}>Catálogo <span>{products.length}</span></button>
+          <button className={activeSection === 'prospects' ? 'is-active' : ''} onClick={() => setActiveSection('prospects')}>Prospectos <span>{prospects.length}</span></button>
+          <button className={activeSection === 'territories' ? 'is-active' : ''} onClick={() => setActiveSection('territories')}>Territorios <span>{territories.length}</span></button>
+          <button className={activeSection === 'inquiries' ? 'is-active' : ''} onClick={() => setActiveSection('inquiries')}>Solicitudes <span>{inquiries.length}</span></button>
+        </nav>
+        <div className="sidebar-footer"><small>{state.data.role}</small><LogoutButton /></div>
+      </aside>
+      <div className="admin-content">
+        <section className="private-heading">
+          <span className="eyebrow">ÁREA PRIVADA</span>
+          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', inquiries: 'Solicitudes comerciales' } as const)[activeSection]}</h1>
+          <p>Selecciona una opción del menú para administrar esta empresa.</p>
         </section>
-      )}
-      <section className="catalog-list" aria-labelledby="catalog-title">
-        <div className="catalog-list-heading"><div><span className="eyebrow">CATÁLOGO</span><h2 id="catalog-title">Productos de {state.data.name}</h2></div><strong>{products.length} producto{products.length === 1 ? '' : 's'}</strong></div>
-        {products.length === 0 ? <p className="empty-catalog">Todavía no hay productos. Crea una categoría y luego agrega el primero.</p> : (
-          <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}{product.format ? ` · ${product.format}` : ''}</small></td><td>{product.category_name}</td><td>{product.price ? `$${Number(product.price).toLocaleString('es-CL')}` : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{canEdit ? <button className={`publish-button ${product.is_published ? 'is-published' : ''}`} type="button" onClick={() => togglePublished(product)}>{product.is_published ? 'Publicado' : 'Publicar'}</button> : product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>
-        )}
-      </section>
-      <section className="catalog-list prospect-list" aria-labelledby="prospects-title">
-        <div className="catalog-list-heading"><div><span className="eyebrow">PROSPECCIÓN</span><h2 id="prospects-title">Prospectos comerciales</h2></div><strong>{prospects.length} prospecto{prospects.length === 1 ? '' : 's'}</strong></div>
-        {canEdit && <form className="prospect-form" onSubmit={createProspect}>
-          <label>Nombre comercial<input name="name" required maxLength={180} /></label><label>Rubro<input name="industry" maxLength={120} /></label>
-          <label>Ciudad o comuna<input name="city" maxLength={120} /></label><label>Región<input name="region" maxLength={120} /></label>
-          <label>Sitio web<input name="website" type="url" /></label><label>Correo<input name="email" type="email" /></label>
-          <label>Teléfono<input name="phone" maxLength={40} /></label><label>Fuente<input name="source" required maxLength={240} /></label>
-          <label>Verificado el<input name="verified_at" type="date" /></label><label className="wide-field">Observaciones<textarea name="notes" maxLength={2000} /></label>
-          <button type="submit" disabled={!csrfToken}>Crear prospecto</button>
-        </form>}
-        <label className="prospect-search">Buscar prospectos<input value={prospectSearch} onChange={(event) => setProspectSearch(event.target.value)} placeholder="Nombre, rubro o ubicación" /></label>
-        {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos. Registra la primera organización potencial.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry || 'Sin rubro'} · {prospect.city || 'Sin ubicación'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}</small>{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
-      </section>
-      <section className="catalog-list inquiry-list" aria-labelledby="inquiries-title">
-        <div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2 id="inquiries-title">Contactos y cotizaciones</h2></div><strong>{inquiries.length} solicitud{inquiries.length === 1 ? '' : 'es'}</strong></div>
-        {inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <article key={inquiry.id}><div className="inquiry-title"><div><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></div>{canEdit ? <select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => updateInquiryStatus(inquiry, event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select> : <span>{inquiry.status}</span>}</div><p>{inquiry.message || 'Sin mensaje adicional.'}</p><div className="inquiry-contact"><span>{inquiry.email || inquiry.phone}</span><time>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time></div><ul>{inquiry.items.map((item) => <li key={item.product}>{item.product_name} × {item.quantity}</li>)}</ul></article>)}</div>}
-      </section>
+        {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
+
+        {activeSection === 'summary' && <section className="summary-grid" aria-label="Resumen de la empresa">
+          <button onClick={() => setActiveSection('catalog')}><span>Catálogo</span><strong>{products.length}</strong><small>productos registrados</small></button>
+          <button onClick={() => setActiveSection('prospects')}><span>Prospectos</span><strong>{prospects.length}</strong><small>organizaciones potenciales</small></button>
+          <button onClick={() => setActiveSection('territories')}><span>Territorios</span><strong>{territories.length}</strong><small>zonas comerciales</small></button>
+          <button onClick={() => setActiveSection('inquiries')}><span>Solicitudes</span><strong>{inquiries.length}</strong><small>contactos recibidos</small></button>
+        </section>}
+
+        {activeSection === 'catalog' && <>
+          {canEdit && <CatalogImportPanel csrfToken={csrfToken} onConfirmed={refreshCatalog} />}
+          {canEdit && <section className="catalog-forms" aria-label="Crear elementos del catálogo">
+            <form className="catalog-form" onSubmit={createCategory}><div><span className="eyebrow">CATEGORÍA</span><h2>Nueva categoría</h2></div><label>Nombre<input name="name" required maxLength={120} /></label><label>Descripción<textarea name="description" maxLength={500} /></label><button type="submit" disabled={!csrfToken}>Crear categoría</button></form>
+            <form className="catalog-form" onSubmit={createProduct}><div><span className="eyebrow">PRODUCTO</span><h2>Nuevo producto</h2></div><label>Categoría<select name="category" required defaultValue=""><option value="" disabled>Selecciona una categoría</option>{categories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Nombre<input name="name" required maxLength={160} /></label><div className="form-row"><label>SKU<input name="sku" required maxLength={80} /></label><label>Formato<input name="format" maxLength={120} /></label></div><label>Descripción<textarea name="description" maxLength={1000} /></label><label>Precio<input name="price" type="number" min="0" step="0.01" /></label><button type="submit" disabled={!csrfToken || categories.length === 0}>Crear producto</button></form>
+          </section>}
+          <section className="catalog-list"><div className="catalog-list-heading"><div><span className="eyebrow">CATÁLOGO</span><h2>Productos de {state.data.name}</h2></div><strong>{products.length} producto{products.length === 1 ? '' : 's'}</strong></div>{products.length === 0 ? <p className="empty-catalog">Todavía no hay productos.</p> : <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}</small></td><td>{product.category_name}</td><td>{product.price ? `$${Number(product.price).toLocaleString('es-CL')}` : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{canEdit ? <button className={`publish-button ${product.is_published ? 'is-published' : ''}`} onClick={() => togglePublished(product)}>{product.is_published ? 'Publicado' : 'Publicar'}</button> : product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>}</section>
+        </>}
+
+        {activeSection === 'prospects' && <section className="catalog-list prospect-list">
+          <div className="catalog-list-heading"><div><span className="eyebrow">PROSPECCIÓN</span><h2>Prospectos comerciales</h2></div><strong>{prospects.length}</strong></div>
+          {canEdit && <form className="prospect-form" onSubmit={createProspect}><label>Nombre comercial<input name="name" required /></label><label>Territorio<select name="territory" defaultValue=""><option value="">Sin asignar</option>{territories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Rubro<input name="industry" /></label><label>Dirección<input name="address" /></label><label>Ciudad o comuna<input name="city" /></label><label>Región<input name="region" /></label><label>Sitio web<input name="website" type="url" /></label><label>Correo<input name="email" type="email" /></label><label>Teléfono<input name="phone" /></label><label>Fuente<input name="source" required /></label><label>Verificado el<input name="verified_at" type="date" /></label><label className="wide-field">Observaciones<textarea name="notes" /></label><button type="submit" disabled={!csrfToken}>Crear prospecto</button></form>}
+          <label className="prospect-search">Buscar prospectos<input value={prospectSearch} onChange={(event) => setProspectSearch(event.target.value)} placeholder="Nombre, rubro o ubicación" /></label>
+          {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry || 'Sin rubro'} · {prospect.territory_name || 'Sin territorio'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}</small>{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
+        </section>}
+
+        {activeSection === 'territories' && <section className="catalog-list territory-list">
+          <div className="catalog-list-heading"><div><span className="eyebrow">COBERTURA</span><h2>Territorios comerciales</h2></div><strong>{territories.length}</strong></div>
+          {canEdit && <form className="territory-form" onSubmit={createTerritory}><label>Nombre<input name="name" required /></label><label>Región<input name="region" /></label><label>Localidades separadas por coma<input name="localities" placeholder="Viña del Mar, Concón" /></label><label>Objetivo de prospectos<input name="prospect_goal" type="number" min="0" defaultValue="0" /></label><label className="wide-field">Descripción<textarea name="description" /></label><button type="submit" disabled={!csrfToken}>Crear territorio</button></form>}
+          {territories.length === 0 ? <p className="empty-catalog">Crea el primer territorio para organizar la prospección.</p> : <div className="territory-grid">{territories.map((territory) => <article key={territory.id}><div><strong>{territory.name}</strong><small>{territory.region || 'Sin región'}</small></div><p>{territory.description || territory.localities.join(', ') || 'Sin descripción.'}</p><div className="coverage-bar"><span style={{ width: `${territory.coverage_percentage}%` }} /></div><footer><span>{territory.prospect_count} prospectos</span><span>{territory.reviewed_count} revisados</span><strong>{territory.coverage_percentage}%</strong></footer></article>)}</div>}
+        </section>}
+
+        {activeSection === 'inquiries' && <section className="catalog-list inquiry-list"><div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2></div><strong>{inquiries.length}</strong></div>{inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <article key={inquiry.id}><div className="inquiry-title"><div><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></div>{canEdit ? <select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => updateInquiryStatus(inquiry, event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select> : <span>{inquiry.status}</span>}</div><p>{inquiry.message || 'Sin mensaje adicional.'}</p><div className="inquiry-contact"><span>{inquiry.email || inquiry.phone}</span><time>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time></div><ul>{inquiry.items.map((item) => <li key={item.product}>{item.product_name} × {item.quantity}</li>)}</ul></article>)}</div>}</section>}
+      </div>
     </main>
   )
 }

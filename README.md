@@ -142,6 +142,8 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/inquiries/public/` | Público limitado | Registra una solicitud para productos publicados del tenant actual |
 | `/api/inquiries/` | Privado | Lista solicitudes pertenecientes al tenant actual |
 | `/api/inquiries/<uuid>/` | Privado | Consulta una solicitud; OWNER/ADMIN puede cambiar su estado |
+| `/api/prospects/territories/` | Privado | Lista territorios y cobertura; OWNER/ADMIN puede crear |
+| `/api/prospects/territories/<uuid>/` | Privado | Consulta y administra un territorio del tenant actual |
 | `/api/prospects/` | Privado | Lista y filtra prospectos; OWNER/ADMIN puede crear |
 | `/api/prospects/<uuid>/` | Privado | Consulta un prospecto; OWNER/ADMIN puede editar o eliminar |
 | `/api/tenant/context/` | Privado | Configuración del tenant y rol del usuario actual |
@@ -167,7 +169,7 @@ La landing permite seleccionar productos publicados, indicar cantidades y enviar
 
 ### Prospectos manuales
 
-El área privada permite registrar organizaciones potenciales con rubro, ubicación, contacto, fuente, fecha de verificación, observaciones y estado. La API aísla los registros por tenant y admite filtros por búsqueda, estado, rubro y ciudad. Al guardar, informa coincidencias potenciales por nombre, correo, teléfono o dominio, pero nunca fusiona registros automáticamente.
+El área privada usa un menú lateral para separar resumen, catálogo, prospectos, territorios y solicitudes. Permite registrar organizaciones potenciales con rubro, ubicación, contacto, fuente, fecha de verificación, observaciones y estado. La API aísla los registros por tenant y admite filtros por búsqueda, estado, rubro y ciudad. Al guardar, informa coincidencias potenciales por nombre, correo, teléfono o dominio, pero nunca fusiona registros automáticamente. Los territorios agrupan localidades, definen una meta de prospectos y muestran cobertura y cantidad revisada; cada prospecto puede asignarse a una de estas zonas.
 
 ## Pruebas y validaciones
 

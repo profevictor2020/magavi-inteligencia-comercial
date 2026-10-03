@@ -3,6 +3,28 @@ import uuid
 from django.db import models
 
 
+class Territory(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="territories")
+    name = models.CharField(max_length=140)
+    description = models.TextField(blank=True, max_length=800)
+    region = models.CharField(max_length=120, blank=True)
+    localities = models.JSONField(default=list, blank=True)
+    prospect_goal = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "name"], name="unique_territory_name_per_tenant"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} · {self.tenant}"
+
+
 class Prospect(models.Model):
     class Status(models.TextChoices):
         NEW = "NEW", "Nuevo"
@@ -11,6 +33,9 @@ class Prospect(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="prospects")
+    territory = models.ForeignKey(
+        Territory, null=True, blank=True, on_delete=models.SET_NULL, related_name="prospects"
+    )
     name = models.CharField(max_length=180)
     industry = models.CharField(max_length=120, blank=True)
     address = models.CharField(max_length=240, blank=True)

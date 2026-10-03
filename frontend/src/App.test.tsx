@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
@@ -115,12 +115,18 @@ describe('multi-tenant application routes', () => {
     }))
     render(<App />)
 
+    expect(await screen.findByRole('heading', { name: 'Hola, equipo de Empresa A' })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Catálogo/ }))
     expect(await screen.findByRole('heading', { name: 'Productos de Empresa A' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Nueva categoría' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Nuevo producto' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publicar' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Contactos y cotizaciones' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Prospectos comerciales' })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Prospectos/ }))
+    expect(screen.getByRole('heading', { name: 'Prospectos comerciales', level: 2 })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Territorios/ }))
+    expect(screen.getByRole('heading', { name: 'Territorios comerciales', level: 2 })).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Solicitudes/ }))
+    expect(screen.getByRole('heading', { name: 'Contactos y cotizaciones', level: 2 })).toBeInTheDocument()
   })
 
   it('previews and confirms a CSV catalog import', async () => {
@@ -143,6 +149,7 @@ describe('multi-tenant application routes', () => {
     }))
     render(<App />)
 
+    fireEvent.click(await within(await screen.findByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Catálogo/ }))
     const fileInput = await screen.findByLabelText('Archivo CSV')
     const csv = new File(['sku,nombre,categoria,descripcion,formato,precio,disponible,publicar\nNEW-1,Producto importado,Abarrotes,,Caja,100,sí,no\n'], 'catalogo.csv', { type: 'text/csv' })
     fireEvent.change(fileInput, { target: { files: [csv] } })
