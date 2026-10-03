@@ -216,13 +216,20 @@ El `package-lock.json` completo se versiona junto con `package.json`; desarrollo
 
 ## Despliegue en Render
 
-No desplegar automáticamente durante revisión. Cuando se autorice:
+Los pull requests no despliegan producción. Después de incorporar un cambio a la
+rama conectada, Render inicia automáticamente un despliegue del nuevo commit:
 
 1. Conectar el repositorio GitHub a Render y crear un Blueprint desde `render.yaml`.
 2. Confirmar que solo se creen `magavi-web` y `magavi-db`.
 3. Configurar `CSRF_TRUSTED_ORIGINS` con el URL HTTPS definitivo del servicio.
 4. Verificar que `DJANGO_SECRET_KEY` sea generado por Render y que `DATABASE_URL` provenga de `magavi-db`.
-5. Desplegar manualmente y comprobar `/api/health/`, `/`, `/admin/` y los logs de migración.
+5. Comprobar `/api/health/`, `/`, `/admin/` y los logs de migración después del despliegue.
+
+Si la aplicación publicada no coincide con `main`, revisar en **Events** que el
+despliegue señale al último commit. **Deploy latest commit** compila los cambios
+nuevos; **Redeploy latest deployment** vuelve a publicar la imagen anterior. Una
+recarga forzada del navegador solo ayuda después de que el despliegue nuevo haya
+finalizado correctamente.
 
 > **Advertencia:** PostgreSQL gratuito de Render expira después de 30 días. Este ambiente solo admite datos sintéticos o demostrativos. No debe alojar datos reales, personales, catálogos confidenciales ni documentos tributarios.
 
