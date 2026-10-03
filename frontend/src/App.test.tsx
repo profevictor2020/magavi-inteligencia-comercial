@@ -104,7 +104,7 @@ describe('multi-tenant application routes', () => {
       const url = String(input)
       const payload = url.includes('/tenant/context/')
         ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
-        : url.includes('/inquiries/')
+        : url.includes('/inquiries/') || url.includes('/prospects/')
           ? []
         : url.includes('/categories/')
           ? [{ id: 'category-a', name: 'Abarrotes', description: '', is_active: true }]
@@ -120,6 +120,7 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Nuevo producto' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publicar' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Contactos y cotizaciones' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Prospectos comerciales' })).toBeInTheDocument()
   })
 
   it('previews and confirms a CSV catalog import', async () => {

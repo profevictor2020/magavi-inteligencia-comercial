@@ -61,6 +61,23 @@ type QuoteInquiry = {
   created_at: string
 }
 
+type Prospect = {
+  id: string
+  name: string
+  industry: string
+  address: string
+  city: string
+  region: string
+  website: string
+  email: string
+  phone: string
+  source: string
+  notes: string
+  verified_at: string | null
+  status: 'NEW' | 'REVIEWED' | 'DISCARDED'
+  duplicate_warnings: { id: string; name: string; matches: string[] }[]
+}
+
 type TenantContext = {
   id: string
   name: string
@@ -367,6 +384,8 @@ function PrivateApp() {
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [inquiries, setInquiries] = useState<QuoteInquiry[]>([])
+  const [prospects, setProspects] = useState<Prospect[]>([])
+  const [prospectSearch, setProspectSearch] = useState('')
   const [csrfToken, setCsrfToken] = useState('')
   const [catalogError, setCatalogError] = useState('')
 
@@ -376,18 +395,20 @@ function PrivateApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
         const tenant = (await response.json()) as TenantContext
-        const [categoryResponse, productResponse, sessionResponse, inquiryResponse] = await Promise.all([
+        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse] = await Promise.all([
           fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/inquiries/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/prospects/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
         ])
-        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok) throw new Error('Private data unavailable')
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok) throw new Error('Private data unavailable')
         const session = (await sessionResponse.json()) as AuthSession
         setCategories((await categoryResponse.json()) as Category[])
         setProducts((await productResponse.json()) as Product[])
         setCsrfToken(session.csrf_token ?? '')
         setInquiries((await inquiryResponse.json()) as QuoteInquiry[])
+        setProspects((await prospectResponse.json()) as Prospect[])
         setState({ phase: 'ready', data: tenant })
       })
       .catch((error: unknown) => {
@@ -482,6 +503,26 @@ function PrivateApp() {
     setProducts((await productResponse.json()) as Product[])
   }
 
+  async function createProspect(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const response = await catalogRequest('/api/prospects/', 'POST', {
+      name: form.get('name'), industry: form.get('industry'), city: form.get('city'), region: form.get('region'),
+      website: form.get('website'), email: form.get('email'), phone: form.get('phone'), source: form.get('source'),
+      notes: form.get('notes'), verified_at: form.get('verified_at') || null, status: 'NEW',
+    })
+    if (response) {
+      setProspects((current) => [...current, response as Prospect].sort((a, b) => a.name.localeCompare(b.name)))
+      formElement.reset()
+    }
+  }
+
+  async function updateProspectStatus(prospect: Prospect, status: Prospect['status']) {
+    const response = await catalogRequest(`/api/prospects/${prospect.id}/`, 'PATCH', { status })
+    if (response) setProspects((current) => current.map((item) => item.id === prospect.id ? response as Prospect : item))
+  }
+
   async function updateInquiryStatus(inquiry: QuoteInquiry, status: QuoteInquiry['status']) {
     setCatalogError('')
     const response = await fetch(`/api/inquiries/${inquiry.id}/`, {
@@ -535,6 +576,19 @@ function PrivateApp() {
         {products.length === 0 ? <p className="empty-catalog">Todavía no hay productos. Crea una categoría y luego agrega el primero.</p> : (
           <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}{product.format ? ` · ${product.format}` : ''}</small></td><td>{product.category_name}</td><td>{product.price ? `$${Number(product.price).toLocaleString('es-CL')}` : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{canEdit ? <button className={`publish-button ${product.is_published ? 'is-published' : ''}`} type="button" onClick={() => togglePublished(product)}>{product.is_published ? 'Publicado' : 'Publicar'}</button> : product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>
         )}
+      </section>
+      <section className="catalog-list prospect-list" aria-labelledby="prospects-title">
+        <div className="catalog-list-heading"><div><span className="eyebrow">PROSPECCIÓN</span><h2 id="prospects-title">Prospectos comerciales</h2></div><strong>{prospects.length} prospecto{prospects.length === 1 ? '' : 's'}</strong></div>
+        {canEdit && <form className="prospect-form" onSubmit={createProspect}>
+          <label>Nombre comercial<input name="name" required maxLength={180} /></label><label>Rubro<input name="industry" maxLength={120} /></label>
+          <label>Ciudad o comuna<input name="city" maxLength={120} /></label><label>Región<input name="region" maxLength={120} /></label>
+          <label>Sitio web<input name="website" type="url" /></label><label>Correo<input name="email" type="email" /></label>
+          <label>Teléfono<input name="phone" maxLength={40} /></label><label>Fuente<input name="source" required maxLength={240} /></label>
+          <label>Verificado el<input name="verified_at" type="date" /></label><label className="wide-field">Observaciones<textarea name="notes" maxLength={2000} /></label>
+          <button type="submit" disabled={!csrfToken}>Crear prospecto</button>
+        </form>}
+        <label className="prospect-search">Buscar prospectos<input value={prospectSearch} onChange={(event) => setProspectSearch(event.target.value)} placeholder="Nombre, rubro o ubicación" /></label>
+        {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos. Registra la primera organización potencial.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry || 'Sin rubro'} · {prospect.city || 'Sin ubicación'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}</small>{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
       </section>
       <section className="catalog-list inquiry-list" aria-labelledby="inquiries-title">
         <div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2 id="inquiries-title">Contactos y cotizaciones</h2></div><strong>{inquiries.length} solicitud{inquiries.length === 1 ? '' : 'es'}</strong></div>

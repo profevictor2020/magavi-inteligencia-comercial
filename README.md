@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, un área privada protegida, Django Admin y health check. **No incluye todavía cotizaciones formales, matching, CRM, ventas ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, registro manual de prospectos, un área privada protegida, Django Admin y health check. **No incluye todavía cotizaciones formales, matching, CRM, ventas ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -20,6 +20,7 @@ Navegador ──► Django + DRF + WhiteNoise ──► PostgreSQL
 - `backend/apps/catalog/`: categorías y productos comerciales aislados por tenant.
 - `backend/apps/health/`: comprobación pública y mínima de aplicación/base de datos.
 - `backend/apps/inquiries/`: solicitudes públicas de contacto/cotización y seguimiento inicial por tenant.
+- `backend/apps/prospecting/`: registro manual, revisión y detección asistida de duplicados de prospectos por tenant.
 - `backend/apps/tenancy/`: tenants, membresías, dominios, resolución segura, permisos y API pública/privada.
 - `Dockerfile`: build multi-stage; compila React y crea una imagen Python no privilegiada.
 - `render.yaml`: un Web Service gratuito y una PostgreSQL gratuita.
@@ -141,6 +142,8 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/inquiries/public/` | Público limitado | Registra una solicitud para productos publicados del tenant actual |
 | `/api/inquiries/` | Privado | Lista solicitudes pertenecientes al tenant actual |
 | `/api/inquiries/<uuid>/` | Privado | Consulta una solicitud; OWNER/ADMIN puede cambiar su estado |
+| `/api/prospects/` | Privado | Lista y filtra prospectos; OWNER/ADMIN puede crear |
+| `/api/prospects/<uuid>/` | Privado | Consulta un prospecto; OWNER/ADMIN puede editar o eliminar |
 | `/api/tenant/context/` | Privado | Configuración del tenant y rol del usuario actual |
 | `/api/tenants/<uuid>/` | Privado | Lectura/edición aislada al tenant del hostname |
 | `/api/health/` | Público | Salud de aplicación y base de datos |
@@ -161,6 +164,10 @@ La carga masiva usa la plantilla CSV descargable con las columnas `sku,nombre,ca
 ### Solicitudes comerciales
 
 La landing permite seleccionar productos publicados, indicar cantidades y enviar datos de contacto con consentimiento explícito. El backend acepta únicamente productos disponibles del tenant resuelto por hostname, conserva una copia del nombre y SKU solicitados, aplica un límite de solicitudes y utiliza un campo señuelo contra envíos automatizados. El área privada lista exclusivamente las solicitudes del tenant actual; `OWNER` y `ADMIN` pueden marcarlas como nuevas, contactadas o cerradas. Esta función captura intención comercial, pero todavía no calcula precios finales ni genera una cotización formal.
+
+### Prospectos manuales
+
+El área privada permite registrar organizaciones potenciales con rubro, ubicación, contacto, fuente, fecha de verificación, observaciones y estado. La API aísla los registros por tenant y admite filtros por búsqueda, estado, rubro y ciudad. Al guardar, informa coincidencias potenciales por nombre, correo, teléfono o dominio, pero nunca fusiona registros automáticamente.
 
 ## Pruebas y validaciones
 
