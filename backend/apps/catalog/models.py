@@ -25,6 +25,11 @@ class Category(models.Model):
 
 
 class Product(models.Model):
+    class CommercialPriority(models.TextChoices):
+        LOW = "LOW", "Baja"
+        MEDIUM = "MEDIUM", "Media"
+        HIGH = "HIGH", "Alta"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="catalog_products")
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
@@ -41,6 +46,11 @@ class Product(models.Model):
     )
     is_available = models.BooleanField(default=True)
     is_published = models.BooleanField(default=False)
+    target_industries = models.JSONField(default=list, blank=True)
+    match_keywords = models.JSONField(default=list, blank=True)
+    commercial_priority = models.CharField(
+        max_length=8, choices=CommercialPriority.choices, default=CommercialPriority.MEDIUM
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
