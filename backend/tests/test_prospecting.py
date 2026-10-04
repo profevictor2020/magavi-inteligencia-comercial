@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Category, Product
+from apps.catalog.models import Category, IndustrySegment, Product
 from apps.prospecting.models import Opportunity, Prospect, Territory
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
@@ -28,7 +28,7 @@ def client(user):
 
 
 def data(name="Restaurante Bahía"):
-    return {"name": name, "industry": "Restaurante", "city": "Viña del Mar", "source": "Visita en terreno", "email": "contacto@bahia.example", "status": "NEW"}
+    return {"name": name, "industry": IndustrySegment.FOOD_SERVICE, "city": "Viña del Mar", "source": "Visita en terreno", "email": "contacto@bahia.example", "status": "NEW"}
 
 
 @pytest.mark.django_db
@@ -37,6 +37,16 @@ def test_owner_creates_tenant_bound_prospect(prospects):
     response = client(owner).post(reverse("prospect-list"), data(), format="json", HTTP_HOST="prospect-a.localhost")
     assert response.status_code == 201
     assert Prospect.objects.get().tenant == tenant
+
+
+@pytest.mark.django_db
+def test_prospect_rejects_free_text_industry_variants(prospects):
+    _, _, owner, _ = prospects
+    response = client(owner).post(
+        reverse("prospect-list"), {**data(), "industry": "Restaurant"}, format="json", HTTP_HOST="prospect-a.localhost"
+    )
+    assert response.status_code == 400
+    assert not Prospect.objects.exists()
 
 
 @pytest.mark.django_db
@@ -62,9 +72,9 @@ def test_viewer_cannot_write(prospects):
 def test_filters_and_duplicate_warning(prospects):
     a, _, owner, _ = prospects
     Prospect.objects.create(tenant=a, **data("Restaurante Bahía"))
-    Prospect.objects.create(tenant=a, **{**data("Hotel Central"), "industry": "Hotel", "status": "REVIEWED", "email": "hotel@example.test"})
+    Prospect.objects.create(tenant=a, **{**data("Hotel Central"), "industry": IndustrySegment.HOSPITALITY, "status": "REVIEWED", "email": "hotel@example.test"})
     api = client(owner)
-    filtered = api.get(reverse("prospect-list") + "?status=REVIEWED&industry=Hotel", HTTP_HOST="prospect-a.localhost")
+    filtered = api.get(reverse("prospect-list") + f"?status=REVIEWED&industry={IndustrySegment.HOSPITALITY}", HTTP_HOST="prospect-a.localhost")
     assert [row["name"] for row in filtered.json()] == ["Hotel Central"]
     duplicate = api.post(reverse("prospect-list"), {**data("Otra razón social"), "website": "https://bahia.example", "email": "contacto@bahia.example"}, format="json", HTTP_HOST="prospect-a.localhost")
     assert duplicate.status_code == 201
@@ -117,16 +127,16 @@ def test_generates_explainable_tenant_bound_opportunities(prospects):
         category=category,
         name="Salmón porcionado",
         sku="SALMON-1",
-        target_industries=["Restaurante"],
+        target_industries=[IndustrySegment.FOOD_SERVICE],
         match_keywords=["bahía", "mariscos"],
         commercial_priority=Product.CommercialPriority.HIGH,
     )
     Product.objects.create(
-        tenant=tenant, category=category, name="Producto irrelevante", sku="OTHER-1", target_industries=["Ferretería"]
+        tenant=tenant, category=category, name="Producto irrelevante", sku="OTHER-1", target_industries=[IndustrySegment.CONSTRUCTION]
     )
     foreign_category = Category.objects.create(tenant=other_tenant, name="Categoría B")
     Product.objects.create(
-        tenant=other_tenant, category=foreign_category, name="Producto B", sku="B-1", target_industries=["Restaurante"]
+        tenant=other_tenant, category=foreign_category, name="Producto B", sku="B-1", target_industries=[IndustrySegment.FOOD_SERVICE]
     )
 
     api = client(owner)
@@ -142,7 +152,7 @@ def test_generates_explainable_tenant_bound_opportunities(prospects):
     assert opportunity.score_breakdown == {
         "industry": 35, "keywords": 12, "territory": 15, "contact": 10, "data_quality": 0, "priority": 5,
     }
-    assert "rubro Restaurante" in opportunity.explanation
+    assert "rubro Restaurantes, restobares y cafeterías" in opportunity.explanation
     assert "bahía" in opportunity.explanation
 
 
@@ -151,7 +161,7 @@ def test_opportunity_review_filters_and_permissions(prospects):
     tenant, _, owner, viewer = prospects
     category = Category.objects.create(tenant=tenant, name="Congelados")
     product = Product.objects.create(
-        tenant=tenant, category=category, name="Producto", sku="P-1", target_industries=["Restaurante"]
+        tenant=tenant, category=category, name="Producto", sku="P-1", target_industries=[IndustrySegment.FOOD_SERVICE]
     )
     prospect = Prospect.objects.create(tenant=tenant, **data())
     opportunity = Opportunity.objects.create(

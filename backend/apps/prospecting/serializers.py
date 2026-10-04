@@ -43,14 +43,15 @@ class TerritorySerializer(serializers.ModelSerializer):
 class ProspectSerializer(serializers.ModelSerializer):
     duplicate_warnings = serializers.SerializerMethodField()
     territory_name = serializers.CharField(source="territory.name", read_only=True)
+    industry_label = serializers.CharField(source="get_industry_display", read_only=True)
 
     class Meta:
         model = Prospect
         fields = (
-            "id", "territory", "territory_name", "name", "industry", "address", "city", "region", "website", "email", "phone",
+            "id", "territory", "territory_name", "name", "industry", "industry_label", "address", "city", "region", "website", "email", "phone",
             "source", "notes", "verified_at", "status", "duplicate_warnings", "created_at", "updated_at",
         )
-        read_only_fields = ("id", "territory_name", "duplicate_warnings", "created_at", "updated_at")
+        read_only_fields = ("id", "territory_name", "industry_label", "duplicate_warnings", "created_at", "updated_at")
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -88,7 +89,7 @@ class ProspectSerializer(serializers.ModelSerializer):
 
 class OpportunitySerializer(serializers.ModelSerializer):
     prospect_name = serializers.CharField(source="prospect.name", read_only=True)
-    prospect_industry = serializers.CharField(source="prospect.industry", read_only=True)
+    prospect_industry = serializers.CharField(source="prospect.get_industry_display", read_only=True)
     territory_name = serializers.CharField(source="prospect.territory.name", read_only=True, default="")
     product_name = serializers.CharField(source="product.name", read_only=True)
     product_sku = serializers.CharField(source="product.sku", read_only=True)

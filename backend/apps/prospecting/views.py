@@ -48,7 +48,7 @@ class ProspectMixin:
         if status:
             queryset = queryset.filter(status=status)
         if industry:
-            queryset = queryset.filter(industry__icontains=industry)
+            queryset = queryset.filter(industry=industry)
         if city:
             queryset = queryset.filter(city__icontains=city)
         if territory:

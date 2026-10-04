@@ -5,6 +5,21 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 
+class IndustrySegment(models.TextChoices):
+    FOOD_SERVICE = "FOOD_SERVICE", "Restaurantes, restobares y cafeterías"
+    HOSPITALITY = "HOSPITALITY", "Hoteles y alojamientos"
+    RETAIL = "RETAIL", "Comercio minorista"
+    WHOLESALE = "WHOLESALE", "Distribución y comercio mayorista"
+    FOOD_PRODUCTION = "FOOD_PRODUCTION", "Producción y elaboración de alimentos"
+    HEALTHCARE = "HEALTHCARE", "Salud y cuidado"
+    EDUCATION = "EDUCATION", "Educación"
+    CONSTRUCTION = "CONSTRUCTION", "Construcción e inmobiliario"
+    LOGISTICS = "LOGISTICS", "Transporte y logística"
+    MANUFACTURING = "MANUFACTURING", "Manufactura"
+    PROFESSIONAL_SERVICES = "PROFESSIONAL_SERVICES", "Servicios profesionales"
+    OTHER = "OTHER", "Otros"
+
+
 class Category(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="catalog_categories")

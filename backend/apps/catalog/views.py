@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 
 from apps.tenancy.permissions import TenantRolePermission
 
-from .models import Category, Product
+from .models import Category, IndustrySegment, Product
 from .serializers import CategorySerializer, ProductSerializer
 from .imports import CatalogImportError, confirm_preview, csv_template, preview_csv, save_preview
 
@@ -44,6 +44,13 @@ class ProductDetailView(TenantCatalogMixin, RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Product.objects.filter(tenant=self.request.tenant).select_related("category")
+
+
+class IndustrySegmentListView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def get(self, request):
+        return Response([{"value": value, "label": label} for value, label in IndustrySegment.choices])
 
 
 class CatalogTemplateView(APIView):
