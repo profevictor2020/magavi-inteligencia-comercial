@@ -29,6 +29,9 @@ type Product = PublicProduct & {
   category_name: string
   is_available: boolean
   is_published: boolean
+  target_industries: string[]
+  match_keywords: string[]
+  commercial_priority: 'LOW' | 'MEDIUM' | 'HIGH'
 }
 
 type ImportRow = {
@@ -80,6 +83,24 @@ type Prospect = {
   verified_at: string | null
   status: 'NEW' | 'REVIEWED' | 'DISCARDED'
   duplicate_warnings: { id: string; name: string; matches: string[] }[]
+}
+
+type Opportunity = {
+  id: string
+  prospect: string
+  prospect_name: string
+  prospect_industry: string
+  territory_name: string
+  product: string
+  product_name: string
+  product_sku: string
+  score: number
+  score_version: string
+  explanation: string
+  score_breakdown: Record<string, number>
+  status: 'PENDING' | 'ACCEPTED' | 'POSTPONED' | 'DISCARDED'
+  review_reason: string
+  evaluated_at: string
 }
 
 type TenantContext = {
@@ -390,7 +411,10 @@ function PrivateApp() {
   const [inquiries, setInquiries] = useState<QuoteInquiry[]>([])
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [territories, setTerritories] = useState<Territory[]>([])
-  const [activeSection, setActiveSection] = useState<'summary' | 'catalog' | 'prospects' | 'territories' | 'inquiries'>('summary')
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([])
+  const [activeSection, setActiveSection] = useState<'summary' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries'>('summary')
+  const [opportunityStatus, setOpportunityStatus] = useState<'ALL' | Opportunity['status']>('ALL')
+  const [generatingOpportunities, setGeneratingOpportunities] = useState(false)
   const [prospectSearch, setProspectSearch] = useState('')
   const [csrfToken, setCsrfToken] = useState('')
   const [catalogError, setCatalogError] = useState('')
@@ -401,15 +425,16 @@ function PrivateApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
         const tenant = (await response.json()) as TenantContext
-        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse, territoryResponse] = await Promise.all([
+        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse, territoryResponse, opportunityResponse] = await Promise.all([
           fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/inquiries/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/territories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/prospects/opportunities/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
         ])
-        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok || !territoryResponse.ok) throw new Error('Private data unavailable')
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok || !territoryResponse.ok || !opportunityResponse.ok) throw new Error('Private data unavailable')
         const session = (await sessionResponse.json()) as AuthSession
         setCategories((await categoryResponse.json()) as Category[])
         setProducts((await productResponse.json()) as Product[])
@@ -417,6 +442,7 @@ function PrivateApp() {
         setInquiries((await inquiryResponse.json()) as QuoteInquiry[])
         setProspects((await prospectResponse.json()) as Prospect[])
         setTerritories((await territoryResponse.json()) as Territory[])
+        setOpportunities((await opportunityResponse.json()) as Opportunity[])
         setState({ phase: 'ready', data: tenant })
       })
       .catch((error: unknown) => {
@@ -472,6 +498,9 @@ function PrivateApp() {
       price: price || null,
       is_available: true,
       is_published: false,
+      target_industries: String(form.get('target_industries') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      match_keywords: String(form.get('match_keywords') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      commercial_priority: form.get('commercial_priority'),
     })
     if (response) {
       setProducts((current) => [...current, response as Product].sort((a, b) => a.name.localeCompare(b.name)))
@@ -484,6 +513,22 @@ function PrivateApp() {
       is_published: !product.is_published,
     })
     if (response) setProducts((current) => current.map((item) => item.id === product.id ? response as Product : item))
+  }
+
+  async function updateProductTargeting(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    const productId = String(form.get('product'))
+    const response = await catalogRequest(`/api/catalog/products/${productId}/`, 'PATCH', {
+      target_industries: String(form.get('target_industries') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      match_keywords: String(form.get('match_keywords') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      commercial_priority: form.get('commercial_priority'),
+    })
+    if (response) {
+      setProducts((current) => current.map((item) => item.id === productId ? response as Product : item))
+      formElement.reset()
+    }
   }
 
   async function catalogRequest(url: string, method: 'POST' | 'PATCH', body: object) {
@@ -562,6 +607,40 @@ function PrivateApp() {
     setInquiries((current) => current.map((item) => item.id === updated.id ? updated : item))
   }
 
+  async function refreshOpportunities() {
+    const response = await fetch('/api/prospects/opportunities/', { headers: jsonHeaders, credentials: 'same-origin' })
+    if (!response.ok) throw new Error('Opportunities unavailable')
+    setOpportunities((await response.json()) as Opportunity[])
+  }
+
+  async function generateMatches() {
+    setCatalogError('')
+    setGeneratingOpportunities(true)
+    try {
+      const response = await fetch('/api/prospects/opportunities/generate/', {
+        method: 'POST', credentials: 'same-origin', headers: { ...jsonHeaders, 'X-CSRFToken': csrfToken },
+      })
+      if (!response.ok) throw new Error('Generation unavailable')
+      await refreshOpportunities()
+    } catch {
+      setCatalogError('No fue posible calcular las oportunidades. Configura las reglas de los productos e inténtalo nuevamente.')
+    } finally {
+      setGeneratingOpportunities(false)
+    }
+  }
+
+  async function reviewOpportunity(opportunity: Opportunity, status: Opportunity['status']) {
+    let reviewReason = opportunity.review_reason
+    if (status === 'DISCARDED') {
+      reviewReason = window.prompt('Indica por qué se descarta esta oportunidad:', opportunity.review_reason) ?? ''
+      if (!reviewReason.trim()) return
+    }
+    const response = await catalogRequest(`/api/prospects/opportunities/${opportunity.id}/`, 'PATCH', {
+      status, review_reason: reviewReason,
+    })
+    if (response) setOpportunities((current) => current.map((item) => item.id === opportunity.id ? response as Opportunity : item))
+  }
+
   return (
     <main className="private-shell admin-shell">
       <aside className="admin-sidebar">
@@ -571,6 +650,7 @@ function PrivateApp() {
           <button className={activeSection === 'catalog' ? 'is-active' : ''} onClick={() => setActiveSection('catalog')}>Catálogo <span>{products.length}</span></button>
           <button className={activeSection === 'prospects' ? 'is-active' : ''} onClick={() => setActiveSection('prospects')}>Prospectos <span>{prospects.length}</span></button>
           <button className={activeSection === 'territories' ? 'is-active' : ''} onClick={() => setActiveSection('territories')}>Territorios <span>{territories.length}</span></button>
+          <button className={activeSection === 'opportunities' ? 'is-active' : ''} onClick={() => setActiveSection('opportunities')}>Oportunidades <span>{opportunities.filter((item) => item.status === 'PENDING').length}</span></button>
           <button className={activeSection === 'inquiries' ? 'is-active' : ''} onClick={() => setActiveSection('inquiries')}>Solicitudes <span>{inquiries.length}</span></button>
         </nav>
         <div className="sidebar-footer"><small>{state.data.role}</small><LogoutButton /></div>
@@ -578,7 +658,7 @@ function PrivateApp() {
       <div className="admin-content">
         <section className="private-heading">
           <span className="eyebrow">ÁREA PRIVADA</span>
-          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', inquiries: 'Solicitudes comerciales' } as const)[activeSection]}</h1>
+          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales' } as const)[activeSection]}</h1>
           <p>Selecciona una opción del menú para administrar esta empresa.</p>
         </section>
         {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
@@ -587,6 +667,7 @@ function PrivateApp() {
           <button onClick={() => setActiveSection('catalog')}><span>Catálogo</span><strong>{products.length}</strong><small>productos registrados</small></button>
           <button onClick={() => setActiveSection('prospects')}><span>Prospectos</span><strong>{prospects.length}</strong><small>organizaciones potenciales</small></button>
           <button onClick={() => setActiveSection('territories')}><span>Territorios</span><strong>{territories.length}</strong><small>zonas comerciales</small></button>
+          <button onClick={() => setActiveSection('opportunities')}><span>Oportunidades</span><strong>{opportunities.filter((item) => item.status === 'PENDING').length}</strong><small>recomendaciones por revisar</small></button>
           <button onClick={() => setActiveSection('inquiries')}><span>Solicitudes</span><strong>{inquiries.length}</strong><small>contactos recibidos</small></button>
         </section>}
 
@@ -594,8 +675,9 @@ function PrivateApp() {
           {canEdit && <CatalogImportPanel csrfToken={csrfToken} onConfirmed={refreshCatalog} />}
           {canEdit && <section className="catalog-forms" aria-label="Crear elementos del catálogo">
             <form className="catalog-form" onSubmit={createCategory}><div><span className="eyebrow">CATEGORÍA</span><h2>Nueva categoría</h2></div><label>Nombre<input name="name" required maxLength={120} /></label><label>Descripción<textarea name="description" maxLength={500} /></label><button type="submit" disabled={!csrfToken}>Crear categoría</button></form>
-            <form className="catalog-form" onSubmit={createProduct}><div><span className="eyebrow">PRODUCTO</span><h2>Nuevo producto</h2></div><label>Categoría<select name="category" required defaultValue=""><option value="" disabled>Selecciona una categoría</option>{categories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Nombre<input name="name" required maxLength={160} /></label><div className="form-row"><label>SKU<input name="sku" required maxLength={80} /></label><label>Formato<input name="format" maxLength={120} /></label></div><label>Descripción<textarea name="description" maxLength={1000} /></label><label>Precio<input name="price" type="number" min="0" step="0.01" /></label><button type="submit" disabled={!csrfToken || categories.length === 0}>Crear producto</button></form>
+            <form className="catalog-form" onSubmit={createProduct}><div><span className="eyebrow">PRODUCTO</span><h2>Nuevo producto</h2></div><label>Categoría<select name="category" required defaultValue=""><option value="" disabled>Selecciona una categoría</option>{categories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Nombre<input name="name" required maxLength={160} /></label><div className="form-row"><label>SKU<input name="sku" required maxLength={80} /></label><label>Formato<input name="format" maxLength={120} /></label></div><label>Descripción<textarea name="description" maxLength={1000} /></label><label>Precio<input name="price" type="number" min="0" step="0.01" /></label><label>Industrias objetivo<input name="target_industries" placeholder="Restaurante, Hotel" /></label><label>Palabras clave<input name="match_keywords" placeholder="mariscos, cocina, banquetería" /></label><label>Prioridad comercial<select name="commercial_priority" defaultValue="MEDIUM"><option value="LOW">Baja</option><option value="MEDIUM">Media</option><option value="HIGH">Alta</option></select></label><button type="submit" disabled={!csrfToken || categories.length === 0}>Crear producto</button></form>
           </section>}
+          {canEdit && products.length > 0 && <form className="matching-rules-form" onSubmit={updateProductTargeting}><div><span className="eyebrow">MATCHING</span><h2>Configurar reglas comerciales</h2><p>Define a qué rubros y señales debe responder cada producto.</p></div><label>Producto<select name="product" required defaultValue=""><option value="" disabled>Selecciona un producto</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><label>Industrias objetivo<input name="target_industries" placeholder="Restaurante, Hotel" /></label><label>Palabras clave<input name="match_keywords" placeholder="mariscos, cocina, eventos" /></label><label>Prioridad<select name="commercial_priority" defaultValue="MEDIUM"><option value="LOW">Baja</option><option value="MEDIUM">Media</option><option value="HIGH">Alta</option></select></label><button type="submit" disabled={!csrfToken}>Guardar reglas</button></form>}
           <section className="catalog-list"><div className="catalog-list-heading"><div><span className="eyebrow">CATÁLOGO</span><h2>Productos de {state.data.name}</h2></div><strong>{products.length} producto{products.length === 1 ? '' : 's'}</strong></div>{products.length === 0 ? <p className="empty-catalog">Todavía no hay productos.</p> : <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}</small></td><td>{product.category_name}</td><td>{product.price ? `$${Number(product.price).toLocaleString('es-CL')}` : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{canEdit ? <button className={`publish-button ${product.is_published ? 'is-published' : ''}`} onClick={() => togglePublished(product)}>{product.is_published ? 'Publicado' : 'Publicar'}</button> : product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>}</section>
         </>}
 
@@ -610,6 +692,12 @@ function PrivateApp() {
           <div className="catalog-list-heading"><div><span className="eyebrow">COBERTURA</span><h2>Territorios comerciales</h2></div><strong>{territories.length}</strong></div>
           {canEdit && <form className="territory-form" onSubmit={createTerritory}><label>Nombre<input name="name" required /></label><label>Región<input name="region" /></label><label>Localidades separadas por coma<input name="localities" placeholder="Viña del Mar, Concón" /></label><label>Objetivo de prospectos<input name="prospect_goal" type="number" min="0" defaultValue="0" /></label><label className="wide-field">Descripción<textarea name="description" /></label><button type="submit" disabled={!csrfToken}>Crear territorio</button></form>}
           {territories.length === 0 ? <p className="empty-catalog">Crea el primer territorio para organizar la prospección.</p> : <div className="territory-grid">{territories.map((territory) => <article key={territory.id}><div><strong>{territory.name}</strong><small>{territory.region || 'Sin región'}</small></div><p>{territory.description || territory.localities.join(', ') || 'Sin descripción.'}</p><div className="coverage-bar"><span style={{ width: `${territory.coverage_percentage}%` }} /></div><footer><span>{territory.prospect_count} prospectos</span><span>{territory.reviewed_count} revisados</span><strong>{territory.coverage_percentage}%</strong></footer></article>)}</div>}
+        </section>}
+
+        {activeSection === 'opportunities' && <section className="catalog-list opportunity-list">
+          <div className="opportunity-heading"><div><span className="eyebrow">MATCHING EXPLICABLE</span><h2>Bandeja de oportunidades</h2><p>Productos recomendados para cada prospecto según reglas comerciales verificables.</p></div>{canEdit && <button type="button" onClick={generateMatches} disabled={!csrfToken || generatingOpportunities}>{generatingOpportunities ? 'Calculando…' : 'Calcular oportunidades'}</button>}</div>
+          <div className="opportunity-filters"><label>Estado<select value={opportunityStatus} onChange={(event) => setOpportunityStatus(event.target.value as typeof opportunityStatus)}><option value="ALL">Todos</option><option value="PENDING">Pendientes</option><option value="ACCEPTED">Aceptadas</option><option value="POSTPONED">Postergadas</option><option value="DISCARDED">Descartadas</option></select></label><span>{opportunities.filter((item) => opportunityStatus === 'ALL' || item.status === opportunityStatus).length} resultados</span></div>
+          {opportunities.length === 0 ? <div className="empty-catalog"><strong>Aún no hay oportunidades.</strong><p>Configura industrias o palabras clave en el catálogo, registra prospectos y ejecuta el cálculo.</p></div> : <div className="opportunity-grid">{opportunities.filter((item) => opportunityStatus === 'ALL' || item.status === opportunityStatus).map((opportunity) => <article key={opportunity.id}><header><div className={`score-badge score-${opportunity.score >= 75 ? 'high' : opportunity.score >= 50 ? 'medium' : 'low'}`}><strong>{opportunity.score}</strong><small>/100</small></div><div><span>{opportunity.prospect_name}</span><h3>{opportunity.product_name}</h3><small>{opportunity.prospect_industry || 'Sin rubro'} · {opportunity.territory_name || 'Sin territorio'}</small></div></header><p>{opportunity.explanation}</p><div className="score-breakdown">{Object.entries(opportunity.score_breakdown).filter(([, value]) => value > 0).map(([criterion, value]) => <span key={criterion}>{({ industry: 'Rubro', keywords: 'Señales', territory: 'Territorio', contact: 'Contacto', data_quality: 'Calidad', priority: 'Prioridad' } as Record<string, string>)[criterion] ?? criterion} +{value}</span>)}</div><footer><small>Fórmula {opportunity.score_version}</small>{canEdit ? <select aria-label={`Revisar ${opportunity.prospect_name} y ${opportunity.product_name}`} value={opportunity.status} onChange={(event) => reviewOpportunity(opportunity, event.target.value as Opportunity['status'])}><option value="PENDING">Pendiente</option><option value="ACCEPTED">Aceptar</option><option value="POSTPONED">Postergar</option><option value="DISCARDED">Descartar</option></select> : <strong>{opportunity.status}</strong>}</footer>{opportunity.review_reason && <p className="review-reason">Motivo: {opportunity.review_reason}</p>}</article>)}</div>}
         </section>}
 
         {activeSection === 'inquiries' && <section className="catalog-list inquiry-list"><div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2></div><strong>{inquiries.length}</strong></div>{inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <article key={inquiry.id}><div className="inquiry-title"><div><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></div>{canEdit ? <select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => updateInquiryStatus(inquiry, event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select> : <span>{inquiry.status}</span>}</div><p>{inquiry.message || 'Sin mensaje adicional.'}</p><div className="inquiry-contact"><span>{inquiry.email || inquiry.phone}</span><time>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time></div><ul>{inquiry.items.map((item) => <li key={item.product}>{item.product_name} × {item.quantity}</li>)}</ul></article>)}</div>}</section>}

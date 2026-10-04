@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, registro manual de prospectos, un área privada protegida, Django Admin y health check. **No incluye todavía cotizaciones formales, matching, CRM, ventas ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía cotizaciones formales, CRM, ventas ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -146,6 +146,9 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/prospects/territories/<uuid>/` | Privado | Consulta y administra un territorio del tenant actual |
 | `/api/prospects/` | Privado | Lista y filtra prospectos; OWNER/ADMIN puede crear |
 | `/api/prospects/<uuid>/` | Privado | Consulta un prospecto; OWNER/ADMIN puede editar o eliminar |
+| `/api/prospects/opportunities/` | Privado | Lista oportunidades priorizadas y permite filtrarlas por estado, territorio o score |
+| `/api/prospects/opportunities/generate/` | OWNER/ADMIN + CSRF | Calcula o actualiza matches explicables entre prospectos y productos |
+| `/api/prospects/opportunities/<uuid>/` | Privado | Consulta una oportunidad; OWNER/ADMIN registra su decisión y motivo |
 | `/api/tenant/context/` | Privado | Configuración del tenant y rol del usuario actual |
 | `/api/tenants/<uuid>/` | Privado | Lectura/edición aislada al tenant del hostname |
 | `/api/health/` | Público | Salud de aplicación y base de datos |
@@ -169,7 +172,11 @@ La landing permite seleccionar productos publicados, indicar cantidades y enviar
 
 ### Prospectos manuales
 
-El área privada usa un menú lateral para separar resumen, catálogo, prospectos, territorios y solicitudes. Permite registrar organizaciones potenciales con rubro, ubicación, contacto, fuente, fecha de verificación, observaciones y estado. La API aísla los registros por tenant y admite filtros por búsqueda, estado, rubro y ciudad. Al guardar, informa coincidencias potenciales por nombre, correo, teléfono o dominio, pero nunca fusiona registros automáticamente. Los territorios agrupan localidades, definen una meta de prospectos y muestran cobertura y cantidad revisada; cada prospecto puede asignarse a una de estas zonas.
+El área privada usa un menú lateral para separar resumen, catálogo, prospectos, territorios, oportunidades y solicitudes. Permite registrar organizaciones potenciales con rubro, ubicación, contacto, fuente, fecha de verificación, observaciones y estado. La API aísla los registros por tenant y admite filtros por búsqueda, estado, rubro y ciudad. Al guardar, informa coincidencias potenciales por nombre, correo, teléfono o dominio, pero nunca fusiona registros automáticamente. Los territorios agrupan localidades, definen una meta de prospectos y muestran cobertura y cantidad revisada; cada prospecto puede asignarse a una de estas zonas.
+
+### Matching y oportunidades
+
+Cada producto puede configurar industrias objetivo, palabras clave y prioridad comercial. Un cálculo iniciado por `OWNER` o `ADMIN` compara esas reglas con los prospectos vigentes y conserva una oportunidad solo cuando existe al menos una señal real de relevancia. La puntuación versionada considera rubro, señales, territorio, contacto, calidad de datos y prioridad; su desglose y explicación quedan persistidos para revisión. La bandeja permite aceptar, postergar o descartar una recomendación, exigiendo un motivo para el descarte. No se utilizan IA, embeddings ni decisiones opacas en esta etapa.
 
 ## Pruebas y validaciones
 

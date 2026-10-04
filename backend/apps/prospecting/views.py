@@ -1,10 +1,13 @@
 from django.db.models import Count, Q
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, RetrieveUpdateAPIView
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.tenancy.permissions import TenantRolePermission
 
-from .models import Prospect, Territory
-from .serializers import ProspectSerializer, TerritorySerializer
+from .matching import generate_opportunities
+from .models import Opportunity, Prospect, Territory
+from .serializers import OpportunitySerializer, ProspectSerializer, TerritorySerializer
 
 
 class TerritoryMixin:
@@ -62,3 +65,42 @@ class ProspectListCreateView(ProspectMixin, ListCreateAPIView):
 
 class ProspectDetailView(ProspectMixin, RetrieveUpdateDestroyAPIView):
     pass
+
+
+class OpportunityListView(ListCreateAPIView):
+    permission_classes = [TenantRolePermission]
+    serializer_class = OpportunitySerializer
+    http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        queryset = Opportunity.objects.filter(tenant=self.request.tenant).select_related(
+            "prospect", "prospect__territory", "product"
+        )
+        status = self.request.query_params.get("status", "").strip()
+        territory = self.request.query_params.get("territory", "").strip()
+        minimum_score = self.request.query_params.get("minimum_score", "").strip()
+        if status:
+            queryset = queryset.filter(status=status)
+        if territory:
+            queryset = queryset.filter(prospect__territory_id=territory)
+        if minimum_score.isdigit():
+            queryset = queryset.filter(score__gte=int(minimum_score))
+        return queryset
+
+
+class OpportunityDetailView(RetrieveUpdateAPIView):
+    permission_classes = [TenantRolePermission]
+    serializer_class = OpportunitySerializer
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_queryset(self):
+        return Opportunity.objects.filter(tenant=self.request.tenant).select_related(
+            "prospect", "prospect__territory", "product"
+        )
+
+
+class GenerateOpportunitiesView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def post(self, request):
+        return Response(generate_opportunities(request.tenant))

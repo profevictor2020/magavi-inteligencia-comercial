@@ -2,7 +2,7 @@ from urllib.parse import urlsplit
 
 from rest_framework import serializers
 
-from .models import Prospect, Territory
+from .models import Opportunity, Prospect, Territory
 
 
 def normalized_domain(value):
@@ -84,3 +84,31 @@ class ProspectSerializer(serializers.ModelSerializer):
             if reasons:
                 warnings.append({"id": str(candidate.id), "name": candidate.name, "matches": reasons})
         return warnings
+
+
+class OpportunitySerializer(serializers.ModelSerializer):
+    prospect_name = serializers.CharField(source="prospect.name", read_only=True)
+    prospect_industry = serializers.CharField(source="prospect.industry", read_only=True)
+    territory_name = serializers.CharField(source="prospect.territory.name", read_only=True, default="")
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    product_sku = serializers.CharField(source="product.sku", read_only=True)
+
+    class Meta:
+        model = Opportunity
+        fields = (
+            "id", "prospect", "prospect_name", "prospect_industry", "territory_name",
+            "product", "product_name", "product_sku", "score", "score_version",
+            "explanation", "score_breakdown", "status", "review_reason", "evaluated_at", "created_at",
+        )
+        read_only_fields = (
+            "id", "prospect", "prospect_name", "prospect_industry", "territory_name",
+            "product", "product_name", "product_sku", "score", "score_version",
+            "explanation", "score_breakdown", "evaluated_at", "created_at",
+        )
+
+    def validate(self, attrs):
+        status = attrs.get("status", getattr(self.instance, "status", Opportunity.Status.PENDING))
+        reason = attrs.get("review_reason", getattr(self.instance, "review_reason", "")).strip()
+        if status == Opportunity.Status.DISCARDED and not reason:
+            raise serializers.ValidationError({"review_reason": "Indica por qué se descarta la oportunidad."})
+        return attrs

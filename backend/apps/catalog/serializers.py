@@ -26,10 +26,25 @@ class ProductSerializer(serializers.ModelSerializer):
             "price",
             "is_available",
             "is_published",
+            "target_industries",
+            "match_keywords",
+            "commercial_priority",
             "created_at",
             "updated_at",
         )
         read_only_fields = ("id", "category_name", "created_at", "updated_at")
+
+    def validate_target_industries(self, value):
+        return self._validate_string_list(value, "Las industrias objetivo")
+
+    def validate_match_keywords(self, value):
+        return self._validate_string_list(value, "Las palabras clave")
+
+    @staticmethod
+    def _validate_string_list(value, label):
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise serializers.ValidationError(f"{label} deben ser una lista de textos.")
+        return list(dict.fromkeys(item.strip() for item in value if item.strip()))
 
     def validate_category(self, category):
         tenant = self.context["request"].tenant

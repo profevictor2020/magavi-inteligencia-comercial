@@ -3,7 +3,8 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from apps.prospecting.models import Prospect, Territory
+from apps.catalog.models import Category, Product
+from apps.prospecting.models import Opportunity, Prospect, Territory
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
 
@@ -103,3 +104,75 @@ def test_territory_assignment_is_tenant_isolated(prospects):
     )
     assert response.status_code == 400
     assert not Prospect.objects.filter(tenant=tenant_a).exists()
+
+
+@pytest.mark.django_db
+def test_generates_explainable_tenant_bound_opportunities(prospects):
+    tenant, other_tenant, owner, _ = prospects
+    territory = Territory.objects.create(tenant=tenant, name="Costa")
+    prospect = Prospect.objects.create(tenant=tenant, territory=territory, **data())
+    category = Category.objects.create(tenant=tenant, name="Congelados")
+    matching_product = Product.objects.create(
+        tenant=tenant,
+        category=category,
+        name="Salmón porcionado",
+        sku="SALMON-1",
+        target_industries=["Restaurante"],
+        match_keywords=["bahía", "mariscos"],
+        commercial_priority=Product.CommercialPriority.HIGH,
+    )
+    Product.objects.create(
+        tenant=tenant, category=category, name="Producto irrelevante", sku="OTHER-1", target_industries=["Ferretería"]
+    )
+    foreign_category = Category.objects.create(tenant=other_tenant, name="Categoría B")
+    Product.objects.create(
+        tenant=other_tenant, category=foreign_category, name="Producto B", sku="B-1", target_industries=["Restaurante"]
+    )
+
+    api = client(owner)
+    generated = api.post(reverse("opportunity-generate"), format="json", HTTP_HOST="prospect-a.localhost")
+    assert generated.status_code == 200
+    assert generated.json() == {"created": 1, "updated": 0, "removed": 0, "total": 1}
+
+    opportunity = Opportunity.objects.get()
+    assert opportunity.tenant == tenant
+    assert opportunity.prospect == prospect
+    assert opportunity.product == matching_product
+    assert opportunity.score == 77
+    assert opportunity.score_breakdown == {
+        "industry": 35, "keywords": 12, "territory": 15, "contact": 10, "data_quality": 0, "priority": 5,
+    }
+    assert "rubro Restaurante" in opportunity.explanation
+    assert "bahía" in opportunity.explanation
+
+
+@pytest.mark.django_db
+def test_opportunity_review_filters_and_permissions(prospects):
+    tenant, _, owner, viewer = prospects
+    category = Category.objects.create(tenant=tenant, name="Congelados")
+    product = Product.objects.create(
+        tenant=tenant, category=category, name="Producto", sku="P-1", target_industries=["Restaurante"]
+    )
+    prospect = Prospect.objects.create(tenant=tenant, **data())
+    opportunity = Opportunity.objects.create(
+        tenant=tenant, prospect=prospect, product=product, score=70, explanation="Coincidencia de prueba."
+    )
+    owner_api = client(owner)
+
+    missing_reason = owner_api.patch(
+        reverse("opportunity-detail", args=[opportunity.id]), {"status": "DISCARDED"}, format="json", HTTP_HOST="prospect-a.localhost"
+    )
+    assert missing_reason.status_code == 400
+    reviewed = owner_api.patch(
+        reverse("opportunity-detail", args=[opportunity.id]),
+        {"status": "DISCARDED", "review_reason": "No trabaja esta línea."},
+        format="json",
+        HTTP_HOST="prospect-a.localhost",
+    )
+    assert reviewed.status_code == 200
+    assert owner_api.get(
+        reverse("opportunity-list") + "?status=DISCARDED&minimum_score=60", HTTP_HOST="prospect-a.localhost"
+    ).json()[0]["product_name"] == "Producto"
+    assert client(viewer).post(
+        reverse("opportunity-generate"), format="json", HTTP_HOST="prospect-a.localhost"
+    ).status_code == 403
