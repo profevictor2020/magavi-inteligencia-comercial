@@ -109,7 +109,7 @@ describe('multi-tenant application routes', () => {
         : url.includes('/categories/')
           ? [{ id: 'category-a', name: 'Abarrotes', description: '', is_active: true }]
           : url.includes('/products/')
-            ? [{ ...companyA.products[0], category: 'category-a', category_name: 'Abarrotes', is_available: true, is_published: false }]
+            ? [{ ...companyA.products[0], category: 'category-a', category_name: 'Abarrotes', is_available: true, is_published: false, target_industries: [], match_keywords: [], commercial_priority: 'MEDIUM' }]
             : { authenticated: true, csrf_token: 'synthetic-csrf-token' }
       return Promise.resolve({ ok: true, json: async () => payload })
     }))
@@ -118,9 +118,18 @@ describe('multi-tenant application routes', () => {
     expect(await screen.findByRole('heading', { name: 'Hola, equipo de Empresa A' })).toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Catálogo/ }))
     expect(await screen.findByRole('heading', { name: 'Productos de Empresa A' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Nueva categoría' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Nuevo producto' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Datos esenciales' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Importar productos desde CSV' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Publicar' })).toBeInTheDocument()
+    const catalogNavigation = screen.getByRole('navigation', { name: 'Secciones del catálogo' })
+    fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Categorías/ }))
+    expect(screen.getByRole('heading', { name: 'Taxonomía del catálogo' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Crear agrupación' })).toBeInTheDocument()
+    fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Importación/ }))
+    expect(screen.getByRole('heading', { name: 'Carga masiva de productos' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Importar productos desde CSV' })).toBeInTheDocument()
+    fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Reglas comerciales/ }))
+    expect(screen.getByRole('heading', { name: 'Segmentación para oportunidades' })).toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Prospectos/ }))
     expect(screen.getByRole('heading', { name: 'Prospectos comerciales', level: 2 })).toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Territorios/ }))
@@ -153,6 +162,7 @@ describe('multi-tenant application routes', () => {
     render(<App />)
 
     fireEvent.click(await within(await screen.findByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Catálogo/ }))
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Secciones del catálogo' })).getByRole('button', { name: /Importación/ }))
     const fileInput = await screen.findByLabelText('Archivo CSV')
     const csv = new File(['sku,nombre,categoria,descripcion,formato,precio,disponible,publicar\nNEW-1,Producto importado,Abarrotes,,Caja,100,sí,no\n'], 'catalogo.csv', { type: 'text/csv' })
     fireEvent.change(fileInput, { target: { files: [csv] } })
