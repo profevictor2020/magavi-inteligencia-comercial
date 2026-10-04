@@ -2,6 +2,8 @@ import uuid
 
 from django.db import models
 
+from apps.catalog.models import IndustrySegment
+
 
 class Territory(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -37,7 +39,7 @@ class Prospect(models.Model):
         Territory, null=True, blank=True, on_delete=models.SET_NULL, related_name="prospects"
     )
     name = models.CharField(max_length=180)
-    industry = models.CharField(max_length=120, blank=True)
+    industry = models.CharField(max_length=32, choices=IndustrySegment.choices, blank=True)
     address = models.CharField(max_length=240, blank=True)
     city = models.CharField(max_length=120, blank=True)
     region = models.CharField(max_length=120, blank=True)

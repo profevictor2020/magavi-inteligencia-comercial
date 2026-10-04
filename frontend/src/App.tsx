@@ -30,6 +30,7 @@ type Product = PublicProduct & {
   is_available: boolean
   is_published: boolean
   target_industries: string[]
+  target_industry_labels: string[]
   match_keywords: string[]
   commercial_priority: 'LOW' | 'MEDIUM' | 'HIGH'
 }
@@ -72,6 +73,7 @@ type Prospect = {
   territory_name: string
   name: string
   industry: string
+  industry_label: string
   address: string
   city: string
   region: string
@@ -118,6 +120,8 @@ type AuthSession = {
 type LoadState<T> = { phase: 'loading' } | { phase: 'ready'; data: T } | { phase: 'error' }
 
 const jsonHeaders = { Accept: 'application/json' }
+
+type IndustrySegmentOption = { value: string; label: string }
 
 function Brand({ name, logo }: { name: string; logo: string }) {
   return (
@@ -412,6 +416,7 @@ function PrivateApp() {
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [territories, setTerritories] = useState<Territory[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
+  const [industrySegments, setIndustrySegments] = useState<IndustrySegmentOption[]>([])
   const [activeSection, setActiveSection] = useState<'summary' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries'>('summary')
   const [catalogSection, setCatalogSection] = useState<'products' | 'categories' | 'import' | 'matching'>('products')
   const [opportunityStatus, setOpportunityStatus] = useState<'ALL' | Opportunity['status']>('ALL')
@@ -426,7 +431,7 @@ function PrivateApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
         const tenant = (await response.json()) as TenantContext
-        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse, territoryResponse, opportunityResponse] = await Promise.all([
+        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse, territoryResponse, opportunityResponse, industryResponse] = await Promise.all([
           fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
@@ -434,8 +439,9 @@ function PrivateApp() {
           fetch('/api/prospects/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/territories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/opportunities/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/catalog/industry-segments/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
         ])
-        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok || !territoryResponse.ok || !opportunityResponse.ok) throw new Error('Private data unavailable')
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok || !territoryResponse.ok || !opportunityResponse.ok || !industryResponse.ok) throw new Error('Private data unavailable')
         const session = (await sessionResponse.json()) as AuthSession
         setCategories((await categoryResponse.json()) as Category[])
         setProducts((await productResponse.json()) as Product[])
@@ -444,6 +450,7 @@ function PrivateApp() {
         setProspects((await prospectResponse.json()) as Prospect[])
         setTerritories((await territoryResponse.json()) as Territory[])
         setOpportunities((await opportunityResponse.json()) as Opportunity[])
+        setIndustrySegments((await industryResponse.json()) as IndustrySegmentOption[])
         setState({ phase: 'ready', data: tenant })
       })
       .catch((error: unknown) => {
@@ -499,7 +506,7 @@ function PrivateApp() {
       price: price || null,
       is_available: true,
       is_published: false,
-      target_industries: String(form.get('target_industries') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      target_industries: form.getAll('target_industries'),
       match_keywords: String(form.get('match_keywords') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
       commercial_priority: form.get('commercial_priority') || 'MEDIUM',
     })
@@ -522,7 +529,7 @@ function PrivateApp() {
     const form = new FormData(formElement)
     const productId = String(form.get('product'))
     const response = await catalogRequest(`/api/catalog/products/${productId}/`, 'PATCH', {
-      target_industries: String(form.get('target_industries') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      target_industries: form.getAll('target_industries'),
       match_keywords: String(form.get('match_keywords') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
       commercial_priority: form.get('commercial_priority'),
     })
@@ -703,16 +710,16 @@ function PrivateApp() {
 
           {catalogSection === 'matching' && <div className="catalog-module matching-module">
             <header className="module-heading"><div><span className="eyebrow">REGLAS COMERCIALES</span><h2>Segmentación para oportunidades</h2><p>Indica a qué industrias y señales responde cada producto. Estas reglas alimentan el score explicable.</p></div></header>
-            {canEdit && products.length > 0 && <form className="matching-rules-form" onSubmit={updateProductTargeting}><label>Producto<select name="product" required defaultValue=""><option value="" disabled>Selecciona un producto</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><label>Industrias objetivo<input name="target_industries" placeholder="Restaurante, Hotel" /></label><label>Palabras clave<input name="match_keywords" placeholder="mariscos, cocina, eventos" /></label><label>Prioridad<select name="commercial_priority" defaultValue="MEDIUM"><option value="LOW">Baja</option><option value="MEDIUM">Media</option><option value="HIGH">Alta</option></select></label><button type="submit" disabled={!csrfToken}>Guardar reglas</button></form>}
-            {products.length === 0 ? <p className="empty-catalog">Registra productos antes de configurar reglas comerciales.</p> : <div className="matching-product-grid">{products.map((product) => <article key={product.id}><div><strong>{product.name}</strong><span className={`priority priority-${product.commercial_priority.toLowerCase()}`}>{product.commercial_priority === 'HIGH' ? 'Alta' : product.commercial_priority === 'LOW' ? 'Baja' : 'Media'}</span></div><small>{product.sku} · {product.category_name}</small><section><span>Industrias</span><p>{product.target_industries.length ? product.target_industries.join(', ') : 'Sin industrias configuradas'}</p></section><section><span>Palabras clave</span><p>{product.match_keywords.length ? product.match_keywords.join(', ') : 'Sin palabras clave configuradas'}</p></section></article>)}</div>}
+            {canEdit && products.length > 0 && <form className="matching-rules-form" onSubmit={updateProductTargeting}><label>Producto<select name="product" required defaultValue=""><option value="" disabled>Selecciona un producto</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label><fieldset className="industry-selector"><legend>Industrias objetivo</legend><p>Selecciona segmentos normalizados para mantener datos comparables.</p><div>{industrySegments.map(({ value, label }) => <label key={value}><input type="checkbox" name="target_industries" value={value} /> <span>{label}</span></label>)}</div></fieldset><label>Palabras clave<input name="match_keywords" placeholder="mariscos, cocina, eventos" /></label><label>Prioridad<select name="commercial_priority" defaultValue="MEDIUM"><option value="LOW">Baja</option><option value="MEDIUM">Media</option><option value="HIGH">Alta</option></select></label><button type="submit" disabled={!csrfToken}>Guardar reglas</button></form>}
+            {products.length === 0 ? <p className="empty-catalog">Registra productos antes de configurar reglas comerciales.</p> : <div className="matching-product-grid">{products.map((product) => <article key={product.id}><div><strong>{product.name}</strong><span className={`priority priority-${product.commercial_priority.toLowerCase()}`}>{product.commercial_priority === 'HIGH' ? 'Alta' : product.commercial_priority === 'LOW' ? 'Baja' : 'Media'}</span></div><small>{product.sku} · {product.category_name}</small><section><span>Industrias</span><p>{product.target_industry_labels.length ? product.target_industry_labels.join(', ') : 'Sin industrias configuradas'}</p></section><section><span>Palabras clave</span><p>{product.match_keywords.length ? product.match_keywords.join(', ') : 'Sin palabras clave configuradas'}</p></section></article>)}</div>}
           </div>}
         </section>}
 
         {activeSection === 'prospects' && <section className="catalog-list prospect-list">
           <div className="catalog-list-heading"><div><span className="eyebrow">PROSPECCIÓN</span><h2>Prospectos comerciales</h2></div><strong>{prospects.length}</strong></div>
-          {canEdit && <form className="prospect-form" onSubmit={createProspect}><label>Nombre comercial<input name="name" required /></label><label>Territorio<select name="territory" defaultValue=""><option value="">Sin asignar</option>{territories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Rubro<input name="industry" /></label><label>Dirección<input name="address" /></label><label>Ciudad o comuna<input name="city" /></label><label>Región<input name="region" /></label><label>Sitio web<input name="website" type="url" /></label><label>Correo<input name="email" type="email" /></label><label>Teléfono<input name="phone" /></label><label>Fuente<input name="source" required /></label><label>Verificado el<input name="verified_at" type="date" /></label><label className="wide-field">Observaciones<textarea name="notes" /></label><button type="submit" disabled={!csrfToken}>Crear prospecto</button></form>}
+          {canEdit && <form className="prospect-form" onSubmit={createProspect}><label>Nombre comercial<input name="name" required /></label><label>Territorio<select name="territory" defaultValue=""><option value="">Sin asignar</option>{territories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Industria<select name="industry" defaultValue=""><option value="">Sin clasificar</option>{industrySegments.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label><label>Dirección<input name="address" /></label><label>Ciudad o comuna<input name="city" /></label><label>Región<input name="region" /></label><label>Sitio web<input name="website" type="url" /></label><label>Correo<input name="email" type="email" /></label><label>Teléfono<input name="phone" /></label><label>Fuente<input name="source" required /></label><label>Verificado el<input name="verified_at" type="date" /></label><label className="wide-field">Observaciones<textarea name="notes" /></label><button type="submit" disabled={!csrfToken}>Crear prospecto</button></form>}
           <label className="prospect-search">Buscar prospectos<input value={prospectSearch} onChange={(event) => setProspectSearch(event.target.value)} placeholder="Nombre, rubro o ubicación" /></label>
-          {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry || 'Sin rubro'} · {prospect.territory_name || 'Sin territorio'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}</small>{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
+          {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry_label} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry_label || 'Sin industria'} · {prospect.territory_name || 'Sin territorio'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}</small>{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
         </section>}
 
         {activeSection === 'territories' && <section className="catalog-list territory-list">

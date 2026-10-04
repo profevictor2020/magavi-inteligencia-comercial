@@ -304,6 +304,12 @@ h1, h2, h3, p { margin-top: 0; }
 .category-grid article p { min-height: 38px; margin: 14px 0; color: #60727c; }
 .status-active, .priority { padding: 4px 8px; border-radius: 999px; color: #0d766e; background: #dff0eb; font-size: .68rem; font-weight: 800; }
 .matching-module .matching-rules-form { grid-template-columns: repeat(4, 1fr) auto; }
+.industry-selector { grid-column: 1 / -1; margin: 0; padding: 16px; border: 1px solid #b9cbc7; border-radius: 10px; background: white; }
+.industry-selector legend { padding-inline: 6px; color: #344950; font-size: .8rem; font-weight: 800; }
+.industry-selector > p { margin: 0 0 12px; color: #60727c; font-size: .76rem; }
+.industry-selector > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.industry-selector label { display: flex; align-items: flex-start; gap: 8px; padding: 9px; border: 1px solid #e0e7e5; border-radius: 8px; color: #40545b; background: #f8faf9; font-size: .74rem; cursor: pointer; }
+.industry-selector input { width: auto; margin-top: 2px; accent-color: #0d766e; }
 .matching-product-grid article > small { display: block; margin-top: 5px; color: #718087; }
 .matching-product-grid article section { margin-top: 16px; }
 .matching-product-grid article section span { color: #0d766e; font-size: .67rem; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
@@ -355,5 +361,6 @@ h1, h2, h3, p { margin-top: 0; }
   .matching-rules-form > div { grid-column: 1 / -1; }
   .catalog-subnav { grid-template-columns: repeat(2, 1fr); }
   .product-create-form, .matching-module .matching-rules-form { grid-template-columns: repeat(2, 1fr); }
+  .industry-selector > div { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 620px) { .summary-grid, .territory-grid, .territory-form, .matching-rules-form, .opportunity-grid, .catalog-subnav, .product-create-form, .category-create-form, .category-grid, .matching-product-grid, .matching-module .matching-rules-form { grid-template-columns: 1fr; } .territory-form .wide-field, .matching-rules-form > div, .product-create-form > div, .product-create-form .wide-field, .category-create-form > div { grid-column: auto; } .opportunity-heading, .catalog-workspace-intro { align-items: stretch; flex-direction: column; } }
+@media (max-width: 620px) { .summary-grid, .territory-grid, .territory-form, .matching-rules-form, .opportunity-grid, .catalog-subnav, .product-create-form, .category-create-form, .category-grid, .matching-product-grid, .matching-module .matching-rules-form, .industry-selector > div { grid-template-columns: 1fr; } .territory-form .wide-field, .matching-rules-form > div, .product-create-form > div, .product-create-form .wide-field, .category-create-form > div { grid-column: auto; } .industry-selector { grid-column: 1; } .opportunity-heading, .catalog-workspace-intro { align-items: stretch; flex-direction: column; } }

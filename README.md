@@ -136,6 +136,7 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/catalog/categories/<uuid>/` | Privado | Consulta/edita una categoría del tenant actual |
 | `/api/catalog/products/` | Privado | Lista/crea productos del tenant actual |
 | `/api/catalog/products/<uuid>/` | Privado | Consulta/edita/elimina y publica un producto del tenant actual |
+| `/api/catalog/industry-segments/` | Privado | Entrega la taxonomía canónica de industrias usada por productos y prospectos |
 | `/api/catalog/import/template/` | Privado | Descarga la plantilla CSV oficial |
 | `/api/catalog/import/preview/` | OWNER/ADMIN + CSRF | Valida un CSV y genera una vista previa temporal |
 | `/api/catalog/import/confirm/` | OWNER/ADMIN + CSRF | Confirma transaccionalmente una vista previa válida |
@@ -176,7 +177,7 @@ El área privada usa un menú lateral para separar resumen, catálogo, prospecto
 
 ### Matching y oportunidades
 
-Cada producto puede configurar industrias objetivo, palabras clave y prioridad comercial. Un cálculo iniciado por `OWNER` o `ADMIN` compara esas reglas con los prospectos vigentes y conserva una oportunidad solo cuando existe al menos una señal real de relevancia. La puntuación versionada considera rubro, señales, territorio, contacto, calidad de datos y prioridad; su desglose y explicación quedan persistidos para revisión. La bandeja permite aceptar, postergar o descartar una recomendación, exigiendo un motivo para el descarte. No se utilizan IA, embeddings ni decisiones opacas en esta etapa.
+Cada producto puede configurar industrias objetivo, palabras clave y prioridad comercial. Las industrias no son texto libre: productos y prospectos seleccionan códigos de una taxonomía única entregada por `/api/catalog/industry-segments/`, evitando variantes como “Restaurant”, “Restaurante” o “Restobar” en los análisis. Las palabras clave sí permanecen libres porque representan señales específicas del negocio. Un cálculo iniciado por `OWNER` o `ADMIN` compara esas reglas con los prospectos vigentes y conserva una oportunidad solo cuando existe al menos una señal real de relevancia. La puntuación versionada considera rubro, señales, territorio, contacto, calidad de datos y prioridad; su desglose y explicación quedan persistidos para revisión. La bandeja permite aceptar, postergar o descartar una recomendación, exigiendo un motivo para el descarte. No se utilizan IA, embeddings ni decisiones opacas en esta etapa.
 
 ## Pruebas y validaciones
 

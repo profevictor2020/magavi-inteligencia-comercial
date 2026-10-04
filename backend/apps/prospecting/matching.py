@@ -21,12 +21,9 @@ def score_product_for_prospect(product, prospect):
             )
         )
     )
-    industries = [_normalized(item) for item in product.target_industries]
+    industries = product.target_industries
     keywords = [_normalized(item) for item in product.match_keywords]
-    industry_match = bool(
-        prospect.industry
-        and any(target in _normalized(prospect.industry) or _normalized(prospect.industry) in target for target in industries)
-    )
+    industry_match = bool(prospect.industry and prospect.industry in industries)
     matched_keywords = [keyword for keyword in keywords if keyword and keyword in haystack]
 
     # A recommendation needs at least one commercial relevance signal. Contact
@@ -45,7 +42,7 @@ def score_product_for_prospect(product, prospect):
     score = min(100, sum(breakdown.values()))
     reasons = []
     if industry_match:
-        reasons.append(f"el rubro {prospect.industry} coincide con el segmento objetivo")
+        reasons.append(f"el rubro {prospect.get_industry_display()} coincide con el segmento objetivo")
     if matched_keywords:
         reasons.append(f"coinciden las señales {', '.join(matched_keywords)}")
     if prospect.territory_id:

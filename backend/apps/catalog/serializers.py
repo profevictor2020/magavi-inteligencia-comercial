@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Category, Product
+from .models import Category, IndustrySegment, Product
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -12,6 +12,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
+    target_industry_labels = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -27,15 +28,25 @@ class ProductSerializer(serializers.ModelSerializer):
             "is_available",
             "is_published",
             "target_industries",
+            "target_industry_labels",
             "match_keywords",
             "commercial_priority",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "category_name", "created_at", "updated_at")
+        read_only_fields = ("id", "category_name", "target_industry_labels", "created_at", "updated_at")
 
     def validate_target_industries(self, value):
-        return self._validate_string_list(value, "Las industrias objetivo")
+        values = self._validate_string_list(value, "Las industrias objetivo")
+        allowed = set(IndustrySegment.values)
+        invalid = [item for item in values if item not in allowed]
+        if invalid:
+            raise serializers.ValidationError("Selecciona industrias de la taxonomía oficial.")
+        return values
+
+    def get_target_industry_labels(self, product):
+        labels = dict(IndustrySegment.choices)
+        return [labels[value] for value in product.target_industries if value in labels]
 
     def validate_match_keywords(self, value):
         return self._validate_string_list(value, "Las palabras clave")

@@ -104,12 +104,14 @@ describe('multi-tenant application routes', () => {
       const url = String(input)
       const payload = url.includes('/tenant/context/')
         ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/industry-segments/')
+          ? [{ value: 'FOOD_SERVICE', label: 'Restaurantes, restobares y cafeterías' }, { value: 'HOSPITALITY', label: 'Hoteles y alojamientos' }]
         : url.includes('/inquiries/') || url.includes('/prospects/')
           ? []
         : url.includes('/categories/')
           ? [{ id: 'category-a', name: 'Abarrotes', description: '', is_active: true }]
           : url.includes('/products/')
-            ? [{ ...companyA.products[0], category: 'category-a', category_name: 'Abarrotes', is_available: true, is_published: false, target_industries: [], match_keywords: [], commercial_priority: 'MEDIUM' }]
+            ? [{ ...companyA.products[0], category: 'category-a', category_name: 'Abarrotes', is_available: true, is_published: false, target_industries: [], target_industry_labels: [], match_keywords: [], commercial_priority: 'MEDIUM' }]
             : { authenticated: true, csrf_token: 'synthetic-csrf-token' }
       return Promise.resolve({ ok: true, json: async () => payload })
     }))
@@ -130,6 +132,9 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Importar productos desde CSV' })).toBeInTheDocument()
     fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Reglas comerciales/ }))
     expect(screen.getByRole('heading', { name: 'Segmentación para oportunidades' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Restaurantes, restobares y cafeterías' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Hoteles y alojamientos' })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Restaurante, Hotel')).not.toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Prospectos/ }))
     expect(screen.getByRole('heading', { name: 'Prospectos comerciales', level: 2 })).toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Territorios/ }))
