@@ -12,7 +12,9 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health/
-    autoDeploy: false
+    # Publish the Docker image built from every commit merged into the connected
+    # branch instead of continuing to serve the previous successful image.
+    autoDeploy: true
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings.production
