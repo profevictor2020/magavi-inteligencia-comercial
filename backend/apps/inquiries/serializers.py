@@ -126,10 +126,22 @@ class QuoteSerializer(serializers.ModelSerializer):
     subtotal = serializers.DecimalField(max_digits=22, decimal_places=0, read_only=True)
     tax_amount = serializers.DecimalField(max_digits=22, decimal_places=0, read_only=True)
     total = serializers.DecimalField(max_digits=22, decimal_places=0, read_only=True)
+    tracking_status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Quote
-        fields = ("id", "folio", "status", "valid_until", "tax_rate", "notes", "issued_at", "items", "subtotal", "tax_amount", "total", "created_at")
+        fields = ("id", "folio", "status", "valid_until", "tax_rate", "notes", "issued_at", "items", "subtotal", "tax_amount", "total", "follow_up_status", "tracking_status", "next_contact_on", "follow_up_notes", "sent_at", "responded_at", "created_at")
+
+
+class QuoteFollowUpSerializer(serializers.Serializer):
+    follow_up_status = serializers.ChoiceField(choices=Quote.FollowUpStatus.choices, required=False)
+    next_contact_on = serializers.DateField(required=False, allow_null=True)
+    follow_up_notes = serializers.CharField(max_length=1500, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("Indica al menos un dato de seguimiento.")
+        return attrs
 
 
 class QuoteDraftItemSerializer(serializers.Serializer):

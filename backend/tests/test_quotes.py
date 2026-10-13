@@ -151,3 +151,54 @@ def test_existing_quote_with_cents_displays_consistent_whole_pesos(quote_context
     assert b"$12.599" in printable.content
     assert b"$44.978" in printable.content
     assert b",50" not in printable.content
+
+
+@pytest.mark.django_db
+def test_follow_up_tracks_manual_send_contact_and_result(quote_context):
+    source, _, item, owner, _ = quote_context
+    client = authenticated_client(owner)
+    base = f"/api/inquiries/{source.id}/quote/"
+    follow_up = base + "follow-up/"
+    assert client.patch(follow_up, {"follow_up_status": "SENT"}, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 404
+    assert client.post(base, draft_payload(item.id), format="json", HTTP_HOST="inquiry-a.localhost").status_code == 201
+    assert client.patch(follow_up, {"follow_up_status": "SENT"}, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 409
+    assert client.post(base + "issue/", HTTP_HOST="inquiry-a.localhost").status_code == 200
+
+    contact_date = str(timezone.localdate() + timedelta(days=2))
+    sent = client.patch(follow_up, {"follow_up_status": "SENT", "next_contact_on": contact_date,
+                                    "follow_up_notes": "Enviada por WhatsApp"}, format="json", HTTP_HOST="inquiry-a.localhost")
+    assert sent.status_code == 200
+    assert sent.data["tracking_status"] == "SENT"
+    assert sent.data["sent_at"] is not None
+    assert sent.data["next_contact_on"] == contact_date
+    assert sent.data["follow_up_notes"] == "Enviada por WhatsApp"
+    assert client.get(base, HTTP_HOST="inquiry-a.localhost").data["follow_up_status"] == "SENT"
+
+    accepted = client.patch(follow_up, {"follow_up_status": "ACCEPTED"}, format="json", HTTP_HOST="inquiry-a.localhost")
+    assert accepted.status_code == 200
+    assert accepted.data["tracking_status"] == "ACCEPTED"
+    assert accepted.data["next_contact_on"] is None
+    assert accepted.data["responded_at"] is not None
+    assert accepted.data["sent_at"] == sent.data["sent_at"]
+    assert client.patch(follow_up, {"follow_up_status": "INVALID"}, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 400
+    assert client.patch(follow_up, {}, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 400
+
+    Quote.objects.filter(request=source).update(valid_until=timezone.localdate() - timedelta(days=1), follow_up_status="SENT")
+    expired = client.get(base, HTTP_HOST="inquiry-a.localhost")
+    assert expired.data["tracking_status"] == "EXPIRED"
+    assert expired.data["follow_up_status"] == "SENT"
+    Quote.objects.filter(request=source).update(follow_up_status="ACCEPTED")
+    assert client.get(base, HTTP_HOST="inquiry-a.localhost").data["tracking_status"] == "ACCEPTED"
+
+
+@pytest.mark.django_db
+def test_follow_up_requires_tenant_and_edit_role(quote_context):
+    source_a, source_b, item, owner, viewer = quote_context
+    owner_client = authenticated_client(owner)
+    base = f"/api/inquiries/{source_a.id}/quote/"
+    assert owner_client.post(base, draft_payload(item.id), format="json", HTTP_HOST="inquiry-a.localhost").status_code == 201
+    assert owner_client.post(base + "issue/", HTTP_HOST="inquiry-a.localhost").status_code == 200
+    payload = {"follow_up_status": "SENT"}
+    assert authenticated_client(viewer).patch(base + "follow-up/", payload, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 403
+    assert owner_client.patch(f"/api/inquiries/{source_b.id}/quote/follow-up/", payload, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 404
+    assert APIClient().patch(base + "follow-up/", payload, format="json", HTTP_HOST="inquiry-a.localhost").status_code in (401, 403)

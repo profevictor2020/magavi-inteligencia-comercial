@@ -77,7 +77,26 @@ type FormalQuote = {
   subtotal: string
   tax_amount: string
   total: string
+  follow_up_status: 'UNSENT' | 'SENT' | 'ACCEPTED' | 'REJECTED'
+  tracking_status: 'UNSENT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED'
+  next_contact_on: string | null
+  follow_up_notes: string
+  sent_at: string | null
+  responded_at: string | null
   items: { request_item: number; product_name: string; product_sku: string; quantity: number; unit_price: string; line_total: string }[]
+}
+
+const trackingLabels: Record<FormalQuote['tracking_status'], string> = {
+  UNSENT: 'Por enviar', SENT: 'Enviada', ACCEPTED: 'Aceptada', REJECTED: 'Rechazada', EXPIRED: 'Vencida',
+}
+
+const formatQuoteDate = (date: string) => date.split('-').reverse().join('/')
+const formatClp = (value: string) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(value))
+const todayInChile = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+
+function needsQuoteAttention(quote: FormalQuote, today: string) {
+  return quote.tracking_status === 'UNSENT' || quote.tracking_status === 'EXPIRED'
+    || (quote.tracking_status === 'SENT' && !!quote.next_contact_on && quote.next_contact_on <= today)
 }
 
 type Territory = { id: string; name: string; description: string; region: string; localities: string[]; prospect_goal: number; is_active: boolean; prospect_count: number; reviewed_count: number; coverage_percentage: number }
@@ -433,10 +452,10 @@ function QuotePanel({ inquiry, products, canEdit, csrfToken, onSaved }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const quote = inquiry.quote
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayInChile()
   const defaultValidity = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
   const endpoint = `/api/inquiries/${inquiry.id}/quote/`
-  const currency = (value: string) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(value))
+  const currency = formatClp
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -525,6 +544,55 @@ function InquiryCard({ inquiry, expanded, onToggle, products, canEdit, csrfToken
   </article>
 }
 
+function QuoteFollowUpCard({ inquiry, quote, canEdit, csrfToken, onSaved }: {
+  inquiry: QuoteInquiry
+  quote: FormalQuote
+  canEdit: boolean
+  csrfToken: string
+  onSaved: (quote: FormalQuote) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+  const today = todayInChile()
+  const due = quote.next_contact_on && quote.next_contact_on <= today && quote.tracking_status === 'SENT'
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError('')
+    setSaved(false)
+    const data = new FormData(event.currentTarget)
+    try {
+      const response = await fetch(`/api/inquiries/${inquiry.id}/quote/follow-up/`, {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({
+          follow_up_status: data.get('follow_up_status'),
+          next_contact_on: data.get('next_contact_on') || null,
+          follow_up_notes: data.get('follow_up_notes'),
+        }),
+      })
+      if (!response.ok) throw new Error('No fue posible guardar el seguimiento. Revisa los datos e inténtalo nuevamente.')
+      onSaved(await response.json() as FormalQuote)
+      setSaved(true)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible guardar el seguimiento.')
+    } finally { setBusy(false) }
+  }
+
+  return <article className={`tracking-card ${expanded ? 'is-open' : ''}`}>
+    <div className="tracking-card-main"><div><span className="eyebrow">{quote.folio}</span><h3>{inquiry.full_name}</h3><p>{inquiry.company_name || 'Cliente particular'}</p></div><span className={`tracking-badge status-${quote.tracking_status.toLowerCase()}`}>{trackingLabels[quote.tracking_status]}</span></div>
+    <div className="tracking-card-values"><div><span>Total</span><strong>{formatClp(quote.total)}</strong></div><div><span>Válida hasta</span><strong>{formatQuoteDate(quote.valid_until)}</strong></div><div><span>Próximo contacto</span><strong className={due ? 'tracking-due' : ''}>{quote.next_contact_on ? formatQuoteDate(quote.next_contact_on) : 'Sin programar'}{due ? ' · Hoy o atrasado' : ''}</strong></div></div>
+    <div className="tracking-card-actions"><button type="button" className="quote-secondary-button" aria-expanded={expanded} aria-controls={`follow-up-${quote.id}`} onClick={() => setExpanded((current) => !current)}>{expanded ? 'Cerrar seguimiento' : canEdit ? 'Registrar seguimiento' : 'Ver seguimiento'}</button><a href={`/api/inquiries/${inquiry.id}/quote/print/`} target="_blank" rel="noopener noreferrer">Ver cotización</a></div>
+    {expanded && <div id={`follow-up-${quote.id}`} className="tracking-card-detail"><div className="tracking-contact">{inquiry.email && <a href={`mailto:${inquiry.email}`}>{inquiry.email}</a>}{inquiry.phone && <a href={`tel:${inquiry.phone}`}>{inquiry.phone}</a>}</div>
+      {canEdit ? <form key={`${quote.id}-${quote.follow_up_status}-${quote.next_contact_on}-${quote.follow_up_notes}`} onSubmit={save} className="tracking-form"><label>Resultado del seguimiento<select name="follow_up_status" defaultValue={quote.follow_up_status}><option value="UNSENT">Por enviar</option><option value="SENT">Enviada por mi cuenta</option><option value="ACCEPTED">Aceptada</option><option value="REJECTED">Rechazada</option></select></label><label>Próximo contacto<input name="next_contact_on" type="date" defaultValue={quote.next_contact_on ?? ''} /></label><label className="tracking-notes">Notas de seguimiento<textarea name="follow_up_notes" maxLength={1500} rows={3} placeholder="Ej.: llamada realizada, respuesta del cliente o próximo paso" defaultValue={quote.follow_up_notes} /></label><p className="tracking-hint">Marcar «Enviada» registra el envío que hiciste por tu cuenta; la aplicación aún no envía correos.</p>{error && <p className="quote-error" role="alert">{error}</p>}{saved && <p className="quote-success" role="status">Seguimiento guardado.</p>}<button className="quote-primary-button" type="submit" disabled={busy || !csrfToken}>{busy ? 'Guardando…' : 'Guardar seguimiento'}</button></form> : <div className="tracking-readonly"><p><strong>Notas:</strong> {quote.follow_up_notes || 'Sin notas de seguimiento.'}</p>{quote.sent_at && <p>Registrada como enviada el {new Date(quote.sent_at).toLocaleDateString('es-CL')}.</p>}</div>}
+    </div>}
+  </article>
+}
+
 function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
   const [categories, setCategories] = useState<Category[]>([])
@@ -534,12 +602,14 @@ function PrivateApp() {
   const [territories, setTerritories] = useState<Territory[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [industrySegments, setIndustrySegments] = useState<IndustrySegmentOption[]>([])
-  const [activeSection, setActiveSection] = useState<'summary' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries'>('summary')
+  const [activeSection, setActiveSection] = useState<'summary' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'quoteTracking'>('summary')
   const [catalogSection, setCatalogSection] = useState<'products' | 'categories' | 'import' | 'matching'>('products')
   const [opportunityStatus, setOpportunityStatus] = useState<'ALL' | Opportunity['status']>('ALL')
   const [generatingOpportunities, setGeneratingOpportunities] = useState(false)
   const [prospectSearch, setProspectSearch] = useState('')
   const [openInquiryId, setOpenInquiryId] = useState<string | null>(null)
+  const [trackingFilter, setTrackingFilter] = useState<'ALL' | 'ATTENTION' | FormalQuote['tracking_status']>('ALL')
+  const [trackingSearch, setTrackingSearch] = useState('')
   const [csrfToken, setCsrfToken] = useState('')
   const [catalogError, setCatalogError] = useState('')
 
@@ -594,6 +664,16 @@ function PrivateApp() {
   }
 
   const canEdit = state.data.role === 'OWNER' || state.data.role === 'ADMIN'
+  const issuedInquiries = inquiries.filter((inquiry) => inquiry.quote?.status === 'ISSUED')
+  const todayChile = todayInChile()
+  const attentionCount = issuedInquiries.filter((inquiry) => inquiry.quote && needsQuoteAttention(inquiry.quote, todayChile)).length
+  const visibleQuotes = issuedInquiries.filter((inquiry) => {
+    const quote = inquiry.quote
+    if (!quote) return false
+    const matchesFilter = trackingFilter === 'ALL' || (trackingFilter === 'ATTENTION' ? needsQuoteAttention(quote, todayChile) : quote.tracking_status === trackingFilter)
+    const matchesSearch = `${inquiry.full_name} ${inquiry.company_name} ${quote.folio}`.toLocaleLowerCase('es-CL').includes(trackingSearch.toLocaleLowerCase('es-CL'))
+    return matchesFilter && matchesSearch
+  })
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -778,13 +858,14 @@ function PrivateApp() {
           <button className={activeSection === 'territories' ? 'is-active' : ''} onClick={() => setActiveSection('territories')}>Territorios <span>{territories.length}</span></button>
           <button className={activeSection === 'opportunities' ? 'is-active' : ''} onClick={() => setActiveSection('opportunities')}>Oportunidades <span>{opportunities.filter((item) => item.status === 'PENDING').length}</span></button>
           <button className={activeSection === 'inquiries' ? 'is-active' : ''} onClick={() => setActiveSection('inquiries')}>Solicitudes <span>{inquiries.length}</span></button>
+          <button className={activeSection === 'quoteTracking' ? 'is-active' : ''} onClick={() => setActiveSection('quoteTracking')}>Seguimiento <span>{attentionCount}</span></button>
         </nav>
         <div className="sidebar-footer"><small>{state.data.role}</small><LogoutButton /></div>
       </aside>
       <div className="admin-content">
         <section className="private-heading">
           <span className="eyebrow">ÁREA PRIVADA</span>
-          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales' } as const)[activeSection]}</h1>
+          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
           <p>Selecciona una opción del menú para administrar esta empresa.</p>
         </section>
         {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
@@ -795,6 +876,7 @@ function PrivateApp() {
           <button onClick={() => setActiveSection('territories')}><span>Territorios</span><strong>{territories.length}</strong><small>zonas comerciales</small></button>
           <button onClick={() => setActiveSection('opportunities')}><span>Oportunidades</span><strong>{opportunities.filter((item) => item.status === 'PENDING').length}</strong><small>recomendaciones por revisar</small></button>
           <button onClick={() => setActiveSection('inquiries')}><span>Solicitudes</span><strong>{inquiries.length}</strong><small>contactos recibidos</small></button>
+          <button onClick={() => setActiveSection('quoteTracking')}><span>Seguimiento</span><strong>{attentionCount}</strong><small>cotizaciones que requieren atención</small></button>
         </section>}
 
         {activeSection === 'catalog' && <section className="catalog-workspace">
@@ -855,6 +937,11 @@ function PrivateApp() {
         {activeSection === 'inquiries' && <section className="catalog-list inquiry-list">
           <div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2><p>Selecciona una solicitud para revisar los datos del cliente y preparar su cotización.</p></div><strong>{inquiries.length} solicitud{inquiries.length === 1 ? '' : 'es'}</strong></div>
           {inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <InquiryCard key={inquiry.id} inquiry={inquiry} expanded={openInquiryId === inquiry.id} onToggle={() => setOpenInquiryId((current) => current === inquiry.id ? null : inquiry.id)} products={products} canEdit={canEdit} csrfToken={csrfToken} onStatusChange={(status) => updateInquiryStatus(inquiry, status)} onQuoteSaved={(quote) => setInquiries((current) => current.map((item) => item.id === inquiry.id ? { ...item, quote } : item))} />)}</div>}
+        </section>}
+
+        {activeSection === 'quoteTracking' && <section className="catalog-list tracking-list">
+          <div className="catalog-list-heading"><div><span className="eyebrow">GESTIÓN COMERCIAL</span><h2>Seguimiento de cotizaciones</h2><p>Revisa cotizaciones emitidas, registra el resultado de cada contacto y planifica el próximo paso.</p></div><strong>{issuedInquiries.length} emitida{issuedInquiries.length === 1 ? '' : 's'}</strong></div>
+          {issuedInquiries.length === 0 ? <div className="empty-catalog"><strong>Aún no hay cotizaciones emitidas.</strong><p>Emite una desde Solicitudes para comenzar el seguimiento.</p></div> : <><div className="tracking-toolbar"><div className="tracking-filters" aria-label="Filtrar cotizaciones">{([['ALL', 'Todas'], ['ATTENTION', `Requieren atención (${attentionCount})`], ['UNSENT', 'Por enviar'], ['SENT', 'Enviadas'], ['ACCEPTED', 'Aceptadas'], ['REJECTED', 'Rechazadas'], ['EXPIRED', 'Vencidas']] as const).map(([value, label]) => <button key={value} type="button" className={trackingFilter === value ? 'is-active' : ''} aria-pressed={trackingFilter === value} onClick={() => setTrackingFilter(value)}>{label}</button>)}</div><label className="tracking-search">Buscar por cliente o folio<input value={trackingSearch} onChange={(event) => setTrackingSearch(event.target.value)} placeholder="Nombre, empresa o COT-..." /></label></div>{visibleQuotes.length === 0 ? <p className="empty-catalog">No hay cotizaciones que coincidan con esta búsqueda o filtro.</p> : <div className="tracking-grid">{visibleQuotes.map((inquiry) => inquiry.quote && <QuoteFollowUpCard key={inquiry.id} inquiry={inquiry} quote={inquiry.quote} canEdit={canEdit} csrfToken={csrfToken} onSaved={(quote) => setInquiries((current) => current.map((item) => item.id === inquiry.id ? { ...item, quote } : item))} />)}</div>}</>}
         </section>}
       </div>
     </main>

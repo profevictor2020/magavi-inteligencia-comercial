@@ -434,3 +434,44 @@ h1, h2, h3, p { margin-top: 0; }
 .quote-error { margin: 0; padding: 11px 14px; border-radius: 8px; color: #8b2d2d; background: #fceaea; font-size: .83rem; }
 .quote-issued p { margin: 0 0 14px; color: #53676d; font-size: .85rem; }
 @media (max-width: 720px) { .inquiry-grid { grid-template-columns: 1fr; } .inquiry-detail, .quote-panel { padding: 17px; } .quote-price-row, .quote-editor-fields { grid-template-columns: 1fr; } .quote-totals { grid-template-columns: 1fr; } .inquiry-detail-heading { align-items: stretch; flex-direction: column; } }
+
+.tracking-list .catalog-list-heading { align-items: flex-start; }
+.tracking-list .catalog-list-heading p { max-width: 630px; margin: 10px 0 0; color: #60727c; line-height: 1.5; }
+.tracking-toolbar { display: grid; gap: 18px; margin-bottom: 22px; }
+.tracking-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.tracking-filters button { padding: 8px 12px; border: 1px solid #d3e0dc; border-radius: 999px; color: #40565d; background: #f6f9f7; font: inherit; font-size: .78rem; font-weight: 750; cursor: pointer; }
+.tracking-filters button:hover, .tracking-filters button.is-active { border-color: #0d766e; color: white; background: #0d766e; }
+.tracking-search { display: grid; gap: 6px; max-width: 400px; color: #40565d; font-size: .78rem; font-weight: 750; }
+.tracking-search input { width: 100%; padding: 11px 13px; border: 1px solid #cbdad6; border-radius: 9px; background: white; font: inherit; }
+.tracking-search input:focus { outline: 2px solid #0d766e; outline-offset: 1px; }
+.tracking-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.tracking-card { min-width: 0; overflow: hidden; border: 1px solid #dce6e3; border-radius: 15px; background: white; box-shadow: 0 8px 22px rgba(22, 52, 61, .045); }
+.tracking-card.is-open { border-color: #91bcb6; }
+.tracking-card-main { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 22px 22px 14px; }
+.tracking-card-main h3 { margin: 6px 0 3px; font-size: 1.16rem; }
+.tracking-card-main p { margin: 0; color: #60727c; font-size: .82rem; }
+.tracking-badge { flex: 0 0 auto; padding: 7px 10px; border-radius: 999px; color: #785a19; background: #fff1d0; font-size: .72rem; font-weight: 850; }
+.tracking-badge.status-sent { color: #0d665f; background: #e3f2ee; }
+.tracking-badge.status-accepted { color: #0b6240; background: #ddf3e7; }
+.tracking-badge.status-rejected, .tracking-badge.status-expired { color: #8b3a35; background: #fbe9e7; }
+.tracking-card-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 22px 18px; }
+.tracking-card-values > div { display: grid; align-content: start; gap: 5px; min-width: 0; padding: 10px; border-radius: 8px; background: #f5f8f6; }
+.tracking-card-values span { color: #68777d; font-size: .68rem; }
+.tracking-card-values strong { overflow-wrap: anywhere; font-size: .83rem; }
+.tracking-card-values .tracking-due { color: #a34135; }
+.tracking-card-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 15px 22px; border-top: 1px solid #e4ece9; }
+.tracking-card-actions .quote-secondary-button { min-height: 38px; padding: 8px 12px; font-size: .77rem; }
+.tracking-card-actions a, .tracking-contact a { color: #0d766e; font-size: .78rem; font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
+.tracking-card-detail { padding: 20px 22px 22px; border-top: 1px solid #e4ece9; background: #f8faf9; }
+.tracking-contact { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 18px; overflow-wrap: anywhere; }
+.tracking-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
+.tracking-form label { display: grid; gap: 7px; color: #344950; font-size: .8rem; font-weight: 750; }
+.tracking-form select, .tracking-form input, .tracking-form textarea { box-sizing: border-box; width: 100%; padding: 11px; border: 1px solid #cbdad6; border-radius: 9px; color: #17242b; background: white; font: inherit; }
+.tracking-form :is(select, input, textarea):focus { outline: 2px solid #0d766e; outline-offset: 1px; }
+.tracking-form .tracking-notes, .tracking-form .tracking-hint, .tracking-form .quote-error, .tracking-form .quote-success { grid-column: 1 / -1; }
+.tracking-form textarea { resize: vertical; }
+.tracking-hint { margin: 0; color: #60727c; font-size: .75rem; line-height: 1.5; }
+.tracking-form .quote-primary-button { justify-self: start; }
+.tracking-readonly p { margin: 0 0 8px; color: #40565d; font-size: .82rem; line-height: 1.5; }
+@media (max-width: 900px) { .tracking-grid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .tracking-card-values, .tracking-form { grid-template-columns: 1fr; } .tracking-list .catalog-list-heading { align-items: flex-start; flex-direction: column; } }

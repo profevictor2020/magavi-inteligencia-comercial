@@ -15,7 +15,7 @@ from apps.tenancy.models import Tenant
 from apps.tenancy.permissions import TenantRolePermission
 
 from .models import Quote, QuoteItem, QuoteRequest
-from .serializers import PrivateQuoteRequestSerializer, PublicQuoteRequestSerializer, QuoteDraftSerializer, QuoteSerializer
+from .serializers import PrivateQuoteRequestSerializer, PublicQuoteRequestSerializer, QuoteDraftSerializer, QuoteFollowUpSerializer, QuoteSerializer
 
 
 class PublicQuoteRequestCreateView(CreateAPIView):
@@ -115,6 +115,37 @@ class QuoteIssueView(APIView):
             quote.status = Quote.Status.ISSUED
             quote.issued_at = timezone.now()
             quote.save(update_fields=["status", "issued_at", "updated_at"])
+            return Response(QuoteSerializer(quote).data)
+
+
+class QuoteFollowUpView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def patch(self, request, pk):
+        with transaction.atomic():
+            quote = get_object_or_404(
+                Quote.objects.select_for_update().prefetch_related("items"),
+                request_id=pk, tenant=request.tenant,
+            )
+            if quote.status != Quote.Status.ISSUED:
+                return Response({"detail": "Emite la cotización antes de registrar seguimiento."}, status=status.HTTP_409_CONFLICT)
+            serializer = QuoteFollowUpSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.validated_data
+            previous_status = quote.follow_up_status
+            quote.follow_up_status = data.get("follow_up_status", previous_status)
+            quote.next_contact_on = data.get("next_contact_on", quote.next_contact_on)
+            quote.follow_up_notes = data.get("follow_up_notes", quote.follow_up_notes)
+            now = timezone.now()
+            if quote.follow_up_status == Quote.FollowUpStatus.SENT and previous_status != Quote.FollowUpStatus.SENT and quote.sent_at is None:
+                quote.sent_at = now
+            if quote.follow_up_status in {Quote.FollowUpStatus.ACCEPTED, Quote.FollowUpStatus.REJECTED}:
+                quote.next_contact_on = None
+                if previous_status != quote.follow_up_status:
+                    quote.responded_at = now
+            elif previous_status in {Quote.FollowUpStatus.ACCEPTED, Quote.FollowUpStatus.REJECTED}:
+                quote.responded_at = None
+            quote.save(update_fields=["follow_up_status", "next_contact_on", "follow_up_notes", "sent_at", "responded_at", "updated_at"])
             return Response(QuoteSerializer(quote).data)
 
 
