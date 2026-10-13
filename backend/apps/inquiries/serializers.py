@@ -132,7 +132,7 @@ class QuoteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Quote
-        fields = ("id", "status", "valid_until", "tax_rate", "notes", "issued_at", "items", "subtotal", "tax_amount", "total", "created_at")
+        fields = ("id", "folio", "status", "valid_until", "tax_rate", "notes", "issued_at", "items", "subtotal", "tax_amount", "total", "created_at")
 
 
 class QuoteDraftItemSerializer(serializers.Serializer):

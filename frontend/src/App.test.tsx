@@ -148,7 +148,7 @@ describe('multi-tenant application routes', () => {
 
   it('creates and issues a quote from an existing request', async () => {
     window.history.replaceState({}, '', '/app/')
-    const quote = { id: 'quote-12345678', status: 'DRAFT', valid_until: '2099-01-01', tax_rate: '19.00', notes: '', issued_at: null, subtotal: '3000.00', tax_amount: '570.00', total: '3570.00', items: [{ request_item: 1, product_name: 'Café', product_sku: 'CAFE-1', quantity: 3, unit_price: '1000.00', line_total: '3000.00' }] }
+    const quote = { id: 'quote-12345678', folio: 'COT-000001', status: 'DRAFT', valid_until: '2099-01-01', tax_rate: '19.00', notes: '', issued_at: null, subtotal: '3000.00', tax_amount: '570.00', total: '3570.00', items: [{ request_item: 1, product_name: 'Café', product_sku: 'CAFE-1', quantity: 3, unit_price: '1000.00', line_total: '3000.00' }] }
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }

@@ -1,30 +1,87 @@
+{% load quote_format %}
 <!doctype html>
 <html lang="es-CL">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Cotización {{ quote.id }} · {{ quote.tenant.name }}</title>
+  <title>{{ quote.folio }} · {{ quote.tenant.name }}</title>
   <style>
-    body { font: 16px/1.5 system-ui, sans-serif; color: #162d31; max-width: 850px; margin: 2rem auto; padding: 0 1rem; }
-    header, .meta, .totals { display: flex; justify-content: space-between; gap: 1rem; }
-    h1 { margin-bottom: .2rem; } small { color: #52676a; }
-    table { border-collapse: collapse; width: 100%; margin: 2rem 0 1rem; }
-    th, td { padding: .6rem; border-bottom: 1px solid #cbd8d7; text-align: left; }
-    .number { text-align: right; } .totals { margin-left: auto; width: min(100%, 320px); display: block; }
-    .totals p { display: flex; justify-content: space-between; margin: .4rem 0; }
-    .total { border-top: 2px solid #162d31; padding-top: .5rem; font-size: 1.2rem; }
-    .notes { white-space: pre-wrap; } button { padding: .7rem 1rem; margin: 1rem 0; cursor: pointer; }
-    @media print { body { margin: 0 auto; } button { display: none; } }
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef3f2; color: #183136; font: 15px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .toolbar { max-width: 900px; margin: 24px auto 12px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .toolbar span { font-size: 13px; color: #506a6e; }
+    .toolbar button { border: 0; border-radius: 8px; padding: 10px 18px; background: #14615e; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+    .sheet { width: min(900px, calc(100% - 32px)); margin: 0 auto 40px; padding: 42px 48px 32px; background: #fff; box-shadow: 0 12px 36px rgba(14, 46, 48, .10); }
+    .masthead { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 24px; border-bottom: 3px solid #14615e; }
+    .brand { display: flex; flex: 1 1 auto; align-items: center; gap: 14px; min-width: 0; }
+    .brand img { flex: none; width: 48px; height: 48px; object-fit: contain; }
+    .brand div { min-width: 120px; }
+    .brand strong { display: block; font-size: 19px; line-height: 1.2; }
+    .brand small, .eyebrow, .label { display: block; color: #5b7376; font-size: 11px; font-weight: 700; letter-spacing: .10em; text-transform: uppercase; }
+    .document-title { flex: none; text-align: right; }
+    .document-title h1 { margin: 0; font-size: 29px; line-height: 1.1; letter-spacing: -.03em; }
+    .folio { display: block; margin-top: 7px; color: #14615e; font-size: 17px; font-weight: 800; white-space: nowrap; }
+    .meta { display: flex; flex-wrap: wrap; gap: 16px 36px; margin: 25px 0 28px; }
+    .meta strong { display: block; margin-top: 2px; font-size: 14px; }
+    .parties { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-bottom: 30px; }
+    .party { border-left: 3px solid #d7e7e4; padding: 3px 0 3px 15px; min-width: 0; overflow-wrap: anywhere; }
+    .party h2 { margin: 5px 0 4px; font-size: 18px; }
+    .party p { margin: 0; color: #455f63; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th { padding: 11px 10px; border-bottom: 2px solid #14615e; color: #455f63; font-size: 11px; letter-spacing: .07em; text-align: left; text-transform: uppercase; }
+    td { padding: 13px 10px; border-bottom: 1px solid #e1e9e8; vertical-align: top; overflow-wrap: anywhere; }
+    th:first-child, td:first-child { padding-left: 0; }
+    th:last-child, td:last-child { padding-right: 0; }
+    .numeric { text-align: right; white-space: nowrap; }
+    .sku { color: #607579; font-size: 12px; }
+    .amounts { display: grid; gap: 8px; width: min(330px, 100%); margin: 24px 0 0 auto; }
+    .amounts div { display: flex; justify-content: space-between; gap: 20px; }
+    .amounts div span { color: #455f63; }
+    .amounts .grand-total { padding-top: 11px; border-top: 2px solid #14615e; color: #183136; font-size: 20px; font-weight: 800; }
+    .amounts .grand-total span { color: #183136; }
+    .notes { margin-top: 30px; padding: 17px 19px; background: #f5f8f7; break-inside: avoid; }
+    .notes h2 { margin: 0 0 5px; font-size: 15px; }
+    .notes p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    footer { margin-top: 32px; padding-top: 13px; border-top: 1px solid #d8e4e2; color: #607579; font-size: 11px; }
+    @media screen and (max-width: 650px) {
+      .sheet { padding: 28px 20px; }
+      .masthead, .parties { display: block; }
+      .document-title { margin-top: 24px; text-align: left; }
+      .party + .party { margin-top: 22px; }
+      table { font-size: 12px; }
+      th, td { padding-right: 5px; padding-left: 5px; }
+      .numeric { white-space: normal; }
+    }
+    @page { size: A4; margin: 14mm; }
+    @media print {
+      html, body { background: #fff; }
+      .toolbar { display: none; }
+      .sheet { width: 100%; max-width: none; margin: 0; padding: 0; box-shadow: none; }
+      .masthead, .meta, .parties, .amounts, footer { break-inside: avoid; }
+      tr { break-inside: avoid; }
+      th { color: #183136; }
+    }
   </style>
 </head>
 <body>
-  <button type="button" onclick="window.print()">Imprimir o guardar como PDF</button>
-  <header><div><h1>Cotización</h1><strong>{{ quote.tenant.name }}</strong></div><div><strong>N.º {{ quote.id }}</strong><br><small>Emitida: {{ quote.issued_at|date:"d/m/Y" }}</small><br><small>Válida hasta: {{ quote.valid_until|date:"d/m/Y" }}</small></div></header>
-  <section><h2>Cliente</h2><p><strong>{{ source.full_name }}</strong><br>{{ source.company_name }}<br>{{ source.email }}{% if source.phone %}<br>{{ source.phone }}{% endif %}</p></section>
-  <table><thead><tr><th>Producto</th><th>SKU</th><th class="number">Cantidad</th><th class="number">Precio unitario (CLP)</th><th class="number">Importe (CLP)</th></tr></thead><tbody>
-    {% for item in quote.items.all %}<tr><td>{{ item.product_name }}</td><td>{{ item.product_sku }}</td><td class="number">{{ item.quantity }}</td><td class="number">{{ item.unit_price|floatformat:2 }}</td><td class="number">{{ item.line_total|floatformat:2 }}</td></tr>{% endfor %}
-  </tbody></table>
-  <div class="totals"><p><span>Subtotal</span><strong>{{ quote.subtotal|floatformat:2 }}</strong></p><p><span>Impuesto ({{ quote.tax_rate }}%)</span><strong>{{ quote.tax_amount|floatformat:2 }}</strong></p><p class="total"><span>Total CLP</span><strong>{{ quote.total|floatformat:2 }}</strong></p></div>
-  {% if quote.notes %}<section><h2>Condiciones</h2><p class="notes">{{ quote.notes }}</p></section>{% endif %}
+  <div class="toolbar"><span>Documento listo para compartir con el cliente</span><button type="button" onclick="window.print()">Imprimir o guardar como PDF</button></div>
+  <main class="sheet">
+    <header class="masthead">
+      <div class="brand"><img src="{{ quote.tenant.logo_path }}" alt=""><div><small>Preparada por</small><strong>{{ quote.tenant.name }}</strong></div></div>
+      <div class="document-title"><span class="eyebrow">Propuesta comercial</span><h1>Cotización</h1><span class="folio">N.º {{ quote.folio }}</span></div>
+    </header>
+    <div class="meta"><div><span class="label">Fecha de emisión</span><strong>{{ quote.issued_at|date:"d/m/Y" }}</strong></div><div><span class="label">Válida hasta</span><strong>{{ quote.valid_until|date:"d/m/Y" }}</strong></div><div><span class="label">Moneda</span><strong>Pesos chilenos (CLP)</strong></div></div>
+    <section class="parties" aria-label="Datos de la cotización">
+      <div class="party"><span class="label">Cliente</span><h2>{{ source.full_name }}</h2>{% if source.company_name %}<p>{{ source.company_name }}</p>{% endif %}{% if source.email %}<p>{{ source.email }}</p>{% endif %}{% if source.phone %}<p>{{ source.phone }}</p>{% endif %}</div>
+      <div class="party"><span class="label">Empresa que cotiza</span><h2>{{ quote.tenant.name }}</h2>{% if quote.tenant.contact_email %}<p>{{ quote.tenant.contact_email }}</p>{% endif %}{% if quote.tenant.contact_phone %}<p>{{ quote.tenant.contact_phone }}</p>{% endif %}</div>
+    </section>
+    <table aria-label="Detalle de productos"><colgroup><col style="width:42%"><col style="width:10%"><col style="width:23%"><col style="width:25%"></colgroup><thead><tr><th>Producto</th><th class="numeric">Cant.</th><th class="numeric">Precio unitario</th><th class="numeric">Importe</th></tr></thead><tbody>
+      {% for item in quote.items.all %}<tr><td><strong>{{ item.product_name }}</strong><br><span class="sku">SKU {{ item.product_sku }}</span></td><td class="numeric">{{ item.quantity }}</td><td class="numeric">{{ item.unit_price|clp }}</td><td class="numeric">{{ item.line_total|clp }}</td></tr>{% endfor %}
+    </tbody></table>
+    <div class="amounts" aria-label="Totales"><div><span>Subtotal</span><strong>{{ quote.subtotal|clp }}</strong></div><div><span>IVA ({{ quote.tax_rate|percentage_cl }}%)</span><strong>{{ quote.tax_amount|clp }}</strong></div><div class="grand-total"><span>Total</span><strong>{{ quote.total|clp }}</strong></div></div>
+    {% if quote.notes %}<section class="notes"><h2>Condiciones comerciales</h2><p>{{ quote.notes }}</p></section>{% endif %}
+    <footer>Valores expresados en pesos chilenos. Esta cotización comercial no reemplaza un documento tributario.</footer>
+  </main>
 </body>
 </html>

@@ -53,6 +53,7 @@ class Quote(models.Model):
         ISSUED = "ISSUED", "Emitida"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.PositiveIntegerField(editable=False)
     tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="quotes")
     request = models.OneToOneField(QuoteRequest, on_delete=models.PROTECT, related_name="quote")
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.DRAFT)
@@ -62,6 +63,13 @@ class Quote(models.Model):
     issued_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tenant", "number"], name="unique_quote_number_per_tenant")]
+
+    @property
+    def folio(self) -> str:
+        return f"COT-{self.number:06d}"
 
     @property
     def subtotal(self) -> Decimal:
@@ -76,7 +84,7 @@ class Quote(models.Model):
         return self.subtotal + self.tax_amount
 
     def __str__(self) -> str:
-        return f"Cotización {self.id} · {self.tenant}"
+        return f"Cotización {self.folio} · {self.tenant}"
 
 
 class QuoteItem(models.Model):

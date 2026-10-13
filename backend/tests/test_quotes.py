@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.inquiries.models import Quote, QuoteRequest, QuoteRequestItem
+from apps.inquiries.templatetags.quote_format import clp, percentage_cl
 from tests.test_inquiries import authenticated_client, inquiry_context
 
 
@@ -34,6 +35,7 @@ def test_quote_draft_totals_snapshot_and_issue(quote_context):
     created = client.post(url, payload, format="json", HTTP_HOST=host)
     assert created.status_code == 201
     assert created.data["subtotal"] == "3000.00"
+    assert created.data["folio"] == "COT-000001"
     assert created.data["tax_amount"] == "570.00"
     assert created.data["total"] == "3570.00"
     assert created.data["items"][0]["product_name"] == "Café"
@@ -58,7 +60,9 @@ def test_quote_draft_totals_snapshot_and_issue(quote_context):
     printable = client.get(url + "print/", HTTP_HOST=host)
     assert printable.status_code == 200
     assert b"Cliente A" in printable.content
-    assert b"7140,00" in printable.content or b"7140.00" in printable.content
+    assert b"COT-000001" in printable.content
+    assert b"$7.140" in printable.content
+    assert b"IVA (19%)" in printable.content
     assert b"<script>alert(1)</script>" not in printable.content
     assert printable["Cache-Control"] == "private, no-store"
 
@@ -92,3 +96,22 @@ def test_quote_rejects_missing_items_negative_prices_and_duplicates(quote_contex
     ):
         assert client.post(url, payload, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 400
     assert Quote.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_quote_numbers_advance_within_tenant(quote_context):
+    source, _, item, owner, _ = quote_context
+    client = authenticated_client(owner)
+    first = client.post(f"/api/inquiries/{source.id}/quote/", draft_payload(item.id), format="json", HTTP_HOST="inquiry-a.localhost")
+    second_source = QuoteRequest.objects.create(tenant=source.tenant, full_name="Otro cliente", email="otro@example.test", consent_at=timezone.now())
+    second_item = QuoteRequestItem.objects.create(quote_request=second_source, product=item.product, product_name="Café", product_sku="CAFE-1", quantity=1)
+    second = client.post(f"/api/inquiries/{second_source.id}/quote/", draft_payload(second_item.id), format="json", HTTP_HOST="inquiry-a.localhost")
+    assert first.data["folio"] == "COT-000001"
+    assert second.data["folio"] == "COT-000002"
+
+
+def test_chilean_money_format_preserves_nonzero_cents():
+    assert clp(Decimal("24990.00")) == "$24.990"
+    assert clp(Decimal("895820.10")) == "$895.820,10"
+    assert percentage_cl(Decimal("19.00")) == "19"
+    assert percentage_cl(Decimal("7.50")) == "7,5"

@@ -68,6 +68,7 @@ type QuoteInquiry = {
 
 type FormalQuote = {
   id: string
+  folio: string
   status: 'DRAFT' | 'ISSUED'
   valid_until: string
   tax_rate: string
@@ -479,7 +480,7 @@ function QuotePanel({ inquiry, products, canEdit, csrfToken, onSaved, onError }:
   }
 
   return <section className="quote-panel" aria-label={`Cotización de ${inquiry.full_name}`}>
-    <h3>{quote ? `Cotización ${quote.id.slice(0, 8).toUpperCase()} · ${quote.status === 'ISSUED' ? 'Emitida' : 'Borrador'}` : 'Preparar cotización'}</h3>
+    <h3>{quote ? `Cotización ${quote.folio} · ${quote.status === 'ISSUED' ? 'Emitida' : 'Borrador'}` : 'Preparar cotización'}</h3>
     {quote && <div className="quote-totals"><span>Subtotal: {currency(quote.subtotal)}</span><span>Impuesto ({quote.tax_rate}%): {currency(quote.tax_amount)}</span><strong>Total: {currency(quote.total)}</strong><small>Válida hasta {quote.valid_until}</small></div>}
     {quote?.status === 'ISSUED' && <p>Cotización emitida. <a href={endpoint + 'print/'} target="_blank" rel="noopener noreferrer">Abrir documento para imprimir o guardar como PDF</a>. Compártelo con el cliente por el canal acordado.</p>}
     {canEdit && quote?.status !== 'ISSUED' && <form key={quote?.id ?? inquiry.id} onSubmit={save} className="quote-editor">
