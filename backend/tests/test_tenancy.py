@@ -1,10 +1,14 @@
+from io import BytesIO
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
+from PIL import Image
 from rest_framework.test import APIClient
 
-from apps.tenancy.models import Membership, Tenant, TenantDomain
+from apps.tenancy.models import Membership, Tenant, TenantDomain, TenantLogo
 
 
 def tenant_payload(slug: str, name: str, logo: str, color: str) -> dict:
@@ -203,6 +207,68 @@ def test_owner_and_admin_can_update_authorized_public_configuration(role_key, te
     assert response.status_code == 200
     tenant_a.refresh_from_db()
     assert tenant_a.description == f"Actualizado por {role_key}"
+
+
+@pytest.mark.django_db
+def test_owner_brand_colors_and_contact_appear_on_public_landing(tenant_a, tenant_b, users, memberships):
+    client = APIClient()
+    client.force_authenticate(users["owner"])
+    response = client.patch(reverse("tenant-context"), {
+        "primary_color": "#25364A", "secondary_color": "#E88C62", "contact_email": "ventas@example.test",
+    }, format="json", HTTP_HOST="empresa-a.localhost")
+    assert response.status_code == 200
+    public = APIClient().get(reverse("public-landing"), HTTP_HOST="empresa-a.localhost")
+    assert public.json()["theme"] == {"primary": "#25364A", "secondary": "#E88C62"}
+    assert public.json()["contact"]["email"] == "ventas@example.test"
+    other = APIClient().get(reverse("public-landing"), HTTP_HOST="empresa-b.localhost")
+    assert other.json()["theme"]["primary"] != "#25364A"
+    assert client.patch(reverse("tenant-context"), {"primary_color": "red"}, format="json", HTTP_HOST="empresa-a.localhost").status_code == 400
+
+
+@pytest.mark.django_db
+def test_owner_uploads_persistent_logo_for_only_own_tenant(tenant_a, tenant_b, users, memberships):
+    image = BytesIO()
+    Image.new("RGBA", (24, 24), (37, 54, 74, 255)).save(image, format="PNG")
+    client = APIClient()
+    client.force_authenticate(users["owner"])
+    response = client.post(reverse("tenant-logo"), {
+        "logo": SimpleUploadedFile("marca.png", image.getvalue(), content_type="image/png"),
+    }, format="multipart", HTTP_HOST="empresa-a.localhost")
+    assert response.status_code == 200
+    assert response.data["logo_path"].startswith("/api/public/logo/?v=")
+    tenant_a.refresh_from_db()
+    assert tenant_a.logo_updated_at is not None
+    assert TenantLogo.objects.get(tenant=tenant_a).data
+    public = APIClient().get(reverse("public-landing"), HTTP_HOST="empresa-a.localhost")
+    assert public.json()["logo_path"] == response.data["logo_path"]
+    logo = APIClient().get(reverse("public-logo"), HTTP_HOST="empresa-a.localhost")
+    assert logo.status_code == 200
+    assert logo["Content-Type"] == "image/png"
+    assert logo.content.startswith(b"\x89PNG")
+    assert logo["X-Content-Type-Options"] == "nosniff"
+    assert APIClient().get(reverse("public-logo"), HTTP_HOST="empresa-b.localhost").status_code == 404
+    assert client.delete(reverse("tenant-logo"), HTTP_HOST="empresa-a.localhost").data["logo_path"] == "/static/demo/empresa-a.svg"
+
+
+@pytest.mark.django_db
+def test_logo_upload_rejects_invalid_images_and_nonowners(tenant_a, users, memberships):
+    owner = APIClient()
+    owner.force_authenticate(users["owner"])
+    invalid = owner.post(reverse("tenant-logo"), {
+        "logo": SimpleUploadedFile("fake.png", b"<svg><script>alert(1)</script></svg>", content_type="image/png"),
+    }, format="multipart", HTTP_HOST="empresa-a.localhost")
+    assert invalid.status_code == 400
+    too_large = owner.post(reverse("tenant-logo"), {
+        "logo": SimpleUploadedFile("large.png", b"x" * 2_000_001, content_type="image/png"),
+    }, format="multipart", HTTP_HOST="empresa-a.localhost")
+    assert too_large.status_code == 400
+    admin = APIClient()
+    admin.force_authenticate(users["admin"])
+    assert admin.patch(reverse("tenant-context"), {"primary_color": "#25364A"}, format="json", HTTP_HOST="empresa-a.localhost").status_code == 400
+    assert admin.post(reverse("tenant-logo"), {"logo": SimpleUploadedFile("x.png", b"invalid")}, format="multipart", HTTP_HOST="empresa-a.localhost").status_code == 403
+    viewer = APIClient()
+    viewer.force_authenticate(users["viewer"])
+    assert viewer.delete(reverse("tenant-logo"), HTTP_HOST="empresa-a.localhost").status_code == 403
 
 
 @pytest.mark.django_db

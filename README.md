@@ -132,6 +132,8 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/auth/login/` | Público + CSRF | Crea una sesión solo si usuario, tenant y membership están activos |
 | `/api/auth/logout/` | Sesión + CSRF | Invalida la sesión actual |
 | `/api/public/landing/` | Público | Configuración pública y productos publicados del tenant del hostname |
+| `/api/public/logo/` | Público | Logo PNG subido para el tenant del hostname |
+| `/api/tenant/logo/` | OWNER + CSRF | Sube o restaura el logo de la empresa |
 | `/api/catalog/categories/` | Privado | Lista/crea categorías del tenant actual |
 | `/api/catalog/categories/<uuid>/` | Privado | Consulta/edita una categoría del tenant actual |
 | `/api/catalog/products/` | Privado | Lista/crea productos del tenant actual |
@@ -166,6 +168,8 @@ La autenticación utiliza sesiones de Django y cookies del mismo origen; React n
 Una cuenta válida en empresa A no puede iniciar sesión desde el dominio de empresa B. Después del login, cada endpoint privado vuelve a aplicar permisos de tenant y rol: la sesión por sí sola no concede acceso. En producción, las cookies de sesión y CSRF se sirven como seguras mediante las variables ya definidas en `render.yaml`.
 
 ### Catálogo comercial
+
+El propietario puede configurar en **Mi marca** los colores principal y secundario, el correo de contacto y un logo PNG, JPEG o WebP de hasta 2 MB. La API valida la imagen, la ajusta y la guarda en PostgreSQL para conservarla entre despliegues de Render. La landing y las cotizaciones imprimibles usan ese logo; cada hostname solo puede obtener el de su propia empresa. El propietario puede restaurar el logo predeterminado. La landing presenta una cabecera, oferta, catálogo y formulario de contacto/cotización compactos, y adapta el contraste de los botones a los colores elegidos.
 
 El área privada permite crear categorías y productos, registrar SKU, formato, precio y disponibilidad, y decidir qué productos se publican. Solo `OWNER` y `ADMIN` pueden modificar el catálogo; `STAFF` y `VIEWER` conservan acceso de lectura. La API asigna siempre el tenant desde el hostname resuelto, no desde datos enviados por el navegador, y rechaza categorías pertenecientes a otra empresa. La landing expone únicamente productos publicados, disponibles y asociados a categorías activas.
 

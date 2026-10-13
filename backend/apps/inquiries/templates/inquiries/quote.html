@@ -68,7 +68,7 @@
   <div class="toolbar"><span>Documento listo para compartir con el cliente</span><button type="button" onclick="window.print()">Imprimir o guardar como PDF</button></div>
   <main class="sheet">
     <header class="masthead">
-      <div class="brand"><img src="{{ quote.tenant.logo_path }}" alt=""><div><small>Preparada por</small><strong>{{ quote.tenant.name }}</strong></div></div>
+      <div class="brand"><img src="{{ quote.tenant.public_logo_url }}" alt=""><div><small>Preparada por</small><strong>{{ quote.tenant.name }}</strong></div></div>
       <div class="document-title"><span class="eyebrow">Propuesta comercial</span><h1>Cotización</h1><span class="folio">N.º {{ quote.folio }}</span></div>
     </header>
     <div class="meta"><div><span class="label">Fecha de emisión</span><strong>{{ quote.issued_at|date:"d/m/Y" }}</strong></div><div><span class="label">Válida hasta</span><strong>{{ quote.valid_until|date:"d/m/Y" }}</strong></div><div><span class="label">Moneda</span><strong>Pesos chilenos (CLP)</strong></div></div>
