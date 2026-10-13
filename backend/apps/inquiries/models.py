@@ -138,6 +138,9 @@ class PurchaseOrder(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     number = models.PositiveIntegerField(editable=False)
     tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="purchase_orders")
+    source_request = models.ForeignKey(
+        QuoteRequest, null=True, blank=True, on_delete=models.SET_NULL, related_name="purchase_orders",
+    )
     full_name = models.CharField(max_length=160)
     company_name = models.CharField(max_length=160, blank=True)
     email = models.EmailField(blank=True)

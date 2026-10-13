@@ -1,5 +1,5 @@
 import { type CSSProperties, type FormEvent, useEffect, useState } from 'react'
-import { buildCommercialInsights, type CommercialPriority } from './commercialInsights'
+import { buildCommercialInsights, contactsMatch, type CommercialPriority } from './commercialInsights'
 
 type LandingData = {
   name: string
@@ -78,6 +78,7 @@ type PurchaseOrder = {
   delivery_address: string
   notes: string
   status: 'NEW' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED'
+  source_request: string | null
   items: { product_name: string; product_sku: string; quantity: number; unit_price: string; line_total: string }[]
   total: string
   created_at: string
@@ -1075,6 +1076,26 @@ function PrivateApp() {
     }
   }
 
+  async function updateOrderSource(order: PurchaseOrder, sourceRequest: string | null) {
+    if (!csrfToken || busyOrderId) return
+    setBusyOrderId(order.id)
+    setOrderError('')
+    try {
+      const response = await fetch(`/api/inquiries/orders/${order.id}/`, {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ source_request: sourceRequest }),
+      })
+      if (!response.ok) throw new Error('Order attribution failed')
+      const updated = await response.json() as PurchaseOrder
+      setOrders((current) => current.map((item) => item.id === updated.id ? updated : item))
+    } catch {
+      setOrderError('No fue posible vincular la solicitud. Revisa los datos e inténtalo nuevamente.')
+    } finally {
+      setBusyOrderId(null)
+    }
+  }
+
   return (
     <main className="private-shell admin-shell">
       <aside className="admin-sidebar">
@@ -1105,8 +1126,9 @@ function PrivateApp() {
           <div className="dashboard-intro"><div><span className="eyebrow">INTELIGENCIA COMERCIAL</span><h2>Prioridades para hoy</h2><p>Acciones calculadas con solicitudes, cotizaciones y pedidos registrados.</p></div><strong>{insights.priorities.length} pendiente{insights.priorities.length === 1 ? '' : 's'}</strong></div>
           {insights.priorities.length === 0 ? <p className="dashboard-empty">No hay gestiones urgentes por ahora. Revisa las solicitudes y el seguimiento cuando lleguen nuevos contactos.</p> : <div className="dashboard-priorities">{insights.priorities.slice(0, 8).map((priority) => <button key={priority.key} type="button" onClick={() => openPriority(priority)}><span className="dashboard-priority-marker" aria-hidden="true" /><span><strong>{priority.title}</strong><small>{priority.detail}</small></span><span aria-hidden="true">↗</span></button>)}</div>}
           {insights.priorities.length > 8 && <p className="dashboard-more">Se muestran las primeras 8 de {insights.priorities.length} gestiones pendientes.</p>}
-          <div className="dashboard-metrics" aria-label="Indicadores comerciales"><div><span>Cotizaciones emitidas</span><strong>{insights.issued}</strong></div><div><span>Aceptadas / emitidas</span><strong>{insights.acceptanceRate === null ? '—' : `${insights.acceptanceRate}%`}</strong><small>{insights.accepted} aceptadas de {insights.issued} emitidas</small></div><div><span>Pedidos completados</span><strong>{insights.completedOrders}</strong></div></div>
+          <div className="dashboard-metrics" aria-label="Indicadores comerciales"><div><span>Cotizaciones emitidas</span><strong>{insights.issued}</strong></div><div><span>Aceptadas / emitidas</span><strong>{insights.acceptanceRate === null ? '—' : `${insights.acceptanceRate}%`}</strong><small>{insights.accepted} aceptadas de {insights.issued} emitidas</small></div><div><span>Pedidos completados</span><strong>{insights.completedOrders}</strong></div><div><span>Solicitudes con pedido completado</span><strong>{insights.requestConversionRate === null ? '—' : `${insights.requestConversionRate}%`}</strong><small>{insights.linkedCompletedRequests} de {inquiries.length} solicitudes, solo pedidos vinculados y completados</small></div></div>
           <div className="dashboard-insights"><section><h3>Productos más solicitados</h3><p>Unidades solicitadas en cotizaciones, sin incluir pedidos directos.</p>{insights.topProducts.length ? <ol>{insights.topProducts.map((product) => <li key={product.sku}><span>{product.name}</span><strong>{product.quantity}</strong></li>)}</ol> : <p>Aún no hay productos solicitados.</p>}</section><section><h3>Contactos recurrentes</h3><p>Personas con dos o más solicitudes y sin pedido registrado con el mismo correo o teléfono.</p>{insights.repeatedContacts.length ? <ul>{insights.repeatedContacts.slice(0, 5).map((contact) => <li key={contact.key}><span>{contact.name}</span><strong>{contact.count} solicitudes</strong></li>)}</ul> : <p>Aún no hay contactos recurrentes en esta situación.</p>}</section></div>
+          <section className="dashboard-sales"><h3>Pedidos completados por producto</h3><p>Importes en pesos chilenos según el precio guardado al recibir cada pedido. El pago aún se coordina fuera del sistema.</p>{insights.salesByProduct.length ? <div className="dashboard-sales-list">{insights.salesByProduct.map((product) => <div key={product.sku}><span>{product.name}<small>{product.quantity} unidades</small></span><strong>{formatClp(String(product.total))}</strong></div>)}</div> : <p>Aún no hay pedidos completados.</p>}</section>
           <h2 className="dashboard-shortcuts-title">Explorar la empresa</h2>
           <div className="summary-grid" aria-label="Secciones de la empresa">
           {state.data.role === 'OWNER' && <button onClick={() => setActiveSection('branding')}><span>Mi marca</span><strong>↗</strong><small>nombre, colores, correo y logo</small></button>}
@@ -1195,6 +1217,7 @@ function PrivateApp() {
             {order.notes && <p><strong>Indicaciones:</strong> {order.notes}</p>}
             <ul>{order.items.map((item) => <li key={item.product_sku}><span>{item.product_name} × {item.quantity}</span><strong>{formatClp(item.line_total)}</strong></li>)}</ul>
             <div className="order-total"><span>Total productos</span><strong>{formatClp(order.total)}</strong></div>
+            <div className="order-attribution"><label htmlFor={`source-${order.id}`}>Solicitud de origen</label><p>Vincula este pedido solo si proviene de una solicitud previa del mismo contacto.</p><select id={`source-${order.id}`} value={order.source_request ?? ''} disabled={!canEdit || busyOrderId === order.id || !csrfToken} onChange={(event) => updateOrderSource(order, event.target.value || null)}><option value="">Sin vincular · compra directa</option>{inquiries.filter((inquiry) => contactsMatch(order, inquiry) && inquiry.created_at <= order.created_at).map((inquiry) => <option key={inquiry.id} value={inquiry.id}>{inquiry.quote?.folio ?? 'Solicitud sin cotización'} · {inquiry.full_name} · {new Date(inquiry.created_at).toLocaleDateString('es-CL')}</option>)}</select></div>
             {canEdit && <div className="order-actions">{order.status === 'NEW' && <button type="button" disabled={busyOrderId === order.id} onClick={() => updateOrderStatus(order, 'CONFIRMED')}>Marcar confirmado</button>}{order.status === 'CONFIRMED' && <button type="button" disabled={busyOrderId === order.id} onClick={() => updateOrderStatus(order, 'COMPLETED')}>Marcar completado</button>}{(order.status === 'NEW' || order.status === 'CONFIRMED') && <button type="button" className="order-cancel" disabled={busyOrderId === order.id} onClick={() => updateOrderStatus(order, 'CANCELLED')}>Cancelar pedido</button>}</div>}
           </article>)}</div>}
         </section>}

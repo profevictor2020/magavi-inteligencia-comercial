@@ -85,7 +85,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PurchaseOrder
-        fields = ("id", "folio", "full_name", "company_name", "email", "phone", "delivery_method", "delivery_address", "notes", "status", "items", "total", "created_at")
+        fields = ("id", "folio", "full_name", "company_name", "email", "phone", "delivery_method", "delivery_address", "notes", "status", "source_request", "items", "total", "created_at")
 
 
 class PublicPurchaseItemSerializer(serializers.Serializer):
@@ -153,9 +153,31 @@ class PublicPurchaseOrderSerializer(serializers.ModelSerializer):
 
 
 class PurchaseOrderStatusSerializer(serializers.ModelSerializer):
+    source_request = serializers.PrimaryKeyRelatedField(queryset=QuoteRequest.objects.none(), allow_null=True, required=False)
+
     class Meta:
         model = PurchaseOrder
-        fields = ("status",)
+        fields = ("status", "source_request")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request and request.tenant:
+            self.fields["source_request"].queryset = QuoteRequest.objects.filter(tenant=request.tenant)
+
+    def validate_source_request(self, value):
+        if value is None:
+            return value
+        order = self.instance
+        if value.created_at > order.created_at:
+            raise serializers.ValidationError("La solicitud debe ser anterior al pedido.")
+        same_email = bool(order.email and value.email and order.email.strip().casefold() == value.email.strip().casefold())
+        order_phone = "".join(character for character in order.phone if character.isdigit())
+        request_phone = "".join(character for character in value.phone if character.isdigit())
+        same_phone = len(order_phone) >= 9 and len(request_phone) >= 9 and order_phone[-9:] == request_phone[-9:]
+        if not (same_email or same_phone):
+            raise serializers.ValidationError("El correo o teléfono del pedido debe coincidir con la solicitud.")
+        return value
 
     def validate_status(self, value):
         current = self.instance.status

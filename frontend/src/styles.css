@@ -296,6 +296,11 @@ h1, h2, h3, p { margin-top: 0; }
 .order-actions button { padding: 9px 12px; border: 0; border-radius: 8px; color: #fff; background: #0d766e; font-weight: 750; cursor: pointer; }
 .order-actions .order-cancel { border: 1px solid #ba635c; color: #963e36; background: #fff; }
 .order-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.order-attribution { margin-top: 15px; padding: 14px; border-radius: 10px; background: #f2f7f5; }
+.order-attribution label { display: block; color: #27464b; font-size: .83rem; font-weight: 800; }
+.order-attribution p { margin: 5px 0 10px; font-size: .75rem; }
+.order-attribution select { width: 100%; min-width: 0; padding: 10px; border: 1px solid #bfd2cd; border-radius: 8px; color: #203940; background: white; font: inherit; font-size: .8rem; }
+.order-attribution select:disabled { color: #60727c; background: #eef2f0; }
 @media (max-width: 900px) { .order-grid { grid-template-columns: 1fr; } }
 .inquiry-list .catalog-list-heading { align-items: flex-start; }
 .inquiry-list .catalog-list-heading p { margin: 10px 0 0; color: #60727c; line-height: 1.5; }
@@ -421,7 +426,7 @@ h1, h2, h3, p { margin-top: 0; }
 .dashboard-priority-marker { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #e79a3c; }
 .dashboard-empty { margin: 0; padding: 24px; border: 1px dashed #bfd5cf; border-radius: 13px; color: #50676c; background: #f8fbfa; }
 .dashboard-more { margin: -8px 0 0; color: #647780; font-size: .83rem; }
-.dashboard-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.dashboard-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .dashboard-metrics > div { display: grid; align-content: start; gap: 7px; padding: 18px; border-radius: 13px; background: #eaf3ef; }
 .dashboard-metrics span { color: #48666b; font-size: .78rem; font-weight: 750; }
 .dashboard-metrics strong { color: #173b3b; font-size: 1.8rem; }
@@ -433,11 +438,19 @@ h1, h2, h3, p { margin-top: 0; }
 .dashboard-insights :is(ol, ul) { display: grid; gap: 0; margin: 15px 0 0; padding: 0; list-style: none; }
 .dashboard-insights li { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid #e8efec; font-size: .82rem; }
 .dashboard-insights li strong { flex: none; color: #0b665f; }
+.dashboard-sales { padding: 22px; border: 1px solid #dfe8e5; border-radius: 15px; background: white; }
+.dashboard-sales h3 { margin: 0 0 5px; }
+.dashboard-sales p { margin: 0; color: #647780; font-size: .78rem; line-height: 1.5; }
+.dashboard-sales-list { display: grid; gap: 0; margin-top: 14px; }
+.dashboard-sales-list > div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid #e8efec; }
+.dashboard-sales-list span { display: grid; gap: 3px; }
+.dashboard-sales-list small { color: #647780; }
+.dashboard-sales-list strong { color: #0b665f; }
 .dashboard-shortcuts-title { margin: 6px 0 -4px; font-size: 1.2rem; }
 .commercial-dashboard .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .commercial-dashboard .summary-grid button { min-height: 108px; padding: 18px; box-shadow: none; }
 .commercial-dashboard .summary-grid strong { font-size: 1.7rem; }
-@media (max-width: 900px) { .dashboard-priorities, .dashboard-insights, .commercial-dashboard .summary-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 900px) { .dashboard-priorities, .dashboard-insights, .dashboard-metrics, .commercial-dashboard .summary-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 620px) { .dashboard-intro { align-items: flex-start; flex-direction: column; } .dashboard-priorities, .dashboard-insights, .dashboard-metrics, .commercial-dashboard .summary-grid { grid-template-columns: 1fr; } }
 .territory-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 24px; padding: 20px; border-radius: 12px; background: #f4f7f5; }
 .territory-form label { display: grid; gap: 6px; color: #344950; font-size: .8rem; font-weight: 750; }

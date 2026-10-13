@@ -25,6 +25,8 @@ type Order = {
   phone: string
   status: 'NEW' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED'
   created_at: string
+  source_request?: string | null
+  items?: { product_sku: string; product_name: string; quantity: number; line_total: string | number }[]
 }
 
 export type CommercialPriority = {
@@ -41,6 +43,13 @@ function contactKey(contact: { email: string; phone: string }) {
   if (contact.email.trim()) return `email:${contact.email.trim().toLocaleLowerCase('es-CL')}`
   const phone = contact.phone.replace(/\D/g, '')
   return phone.length >= 8 ? `phone:${phone}` : null
+}
+
+export function contactsMatch(a: { email: string; phone: string }, b: { email: string; phone: string }) {
+  if (a.email.trim() && b.email.trim() && a.email.trim().toLocaleLowerCase('es-CL') === b.email.trim().toLocaleLowerCase('es-CL')) return true
+  const aPhone = a.phone.replace(/\D/g, '')
+  const bPhone = b.phone.replace(/\D/g, '')
+  return aPhone.length >= 9 && bPhone.length >= 9 && aPhone.slice(-9) === bPhone.slice(-9)
 }
 
 export function buildCommercialInsights(inquiries: Inquiry[], orders: Order[], today: string) {
@@ -96,12 +105,23 @@ export function buildCommercialInsights(inquiries: Inquiry[], orders: Order[], t
 
   const issued = inquiries.filter((inquiry) => inquiry.quote?.status === 'ISSUED')
   const accepted = issued.filter((inquiry) => inquiry.quote?.tracking_status === 'ACCEPTED').length
+  const completed = orders.filter((order) => order.status === 'COMPLETED')
+  const linkedRequests = new Set(completed.map((order) => order.source_request).filter(Boolean))
+  const sales = new Map<string, { sku: string; name: string; quantity: number; total: number }>()
+  for (const order of completed) for (const item of order.items ?? []) {
+    const existing = sales.get(item.product_sku)
+    sales.set(item.product_sku, { sku: item.product_sku, name: item.product_name,
+      quantity: (existing?.quantity ?? 0) + item.quantity, total: (existing?.total ?? 0) + Number(item.line_total) })
+  }
   return {
     priorities,
     issued: issued.length,
     accepted,
     acceptanceRate: issued.length ? Math.round(accepted * 100 / issued.length) : null,
-    completedOrders: orders.filter((order) => order.status === 'COMPLETED').length,
+    completedOrders: completed.length,
+    linkedCompletedRequests: linkedRequests.size,
+    requestConversionRate: inquiries.length ? Math.round(linkedRequests.size * 100 / inquiries.length) : null,
+    salesByProduct: [...sales.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'es-CL')).slice(0, 5),
     repeatedContacts: [...inquiryContacts.values()].filter((contact) => contact.count >= 2).sort((a, b) => b.count - a.count),
     topProducts: [...demand.values()].sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, 'es-CL')).slice(0, 5),
   }

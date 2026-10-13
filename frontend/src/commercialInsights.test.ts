@@ -31,4 +31,17 @@ describe('commercial insights', () => {
     expect(result.repeatedContacts).toEqual([])
     expect(result.acceptanceRate).toBe(0)
   })
+
+  it('counts conversion and product sales only from linked completed orders', () => {
+    const orders = [
+      { id: 'order-1', folio: 'PED-000001', full_name: 'Ana', email: 'ana@example.com', phone: '', status: 'COMPLETED' as const, created_at: '2026-10-13T12:00:00Z', source_request: baseInquiry.id, items: [{ product_sku: 'CAM-1', product_name: 'Camarón', quantity: 2, line_total: '49980' }] },
+      { id: 'order-2', folio: 'PED-000002', full_name: 'Ana', email: 'ana@example.com', phone: '', status: 'COMPLETED' as const, created_at: '2026-10-13T13:00:00Z', source_request: baseInquiry.id, items: [{ product_sku: 'CAM-1', product_name: 'Camarón', quantity: 1, line_total: '24990' }] },
+      { id: 'order-3', folio: 'PED-000003', full_name: 'Luis', email: 'luis@example.com', phone: '', status: 'CANCELLED' as const, created_at: '2026-10-13T14:00:00Z', source_request: null, items: [{ product_sku: 'CAM-1', product_name: 'Camarón', quantity: 8, line_total: '199920' }] },
+    ]
+    const result = buildCommercialInsights([baseInquiry, { ...baseInquiry, id: 'request-2' }], orders, '2026-10-13')
+    expect(result.completedOrders).toBe(2)
+    expect(result.linkedCompletedRequests).toBe(1)
+    expect(result.requestConversionRate).toBe(50)
+    expect(result.salesByProduct).toEqual([{ sku: 'CAM-1', name: 'Camarón', quantity: 3, total: 74970 }])
+  })
 })
