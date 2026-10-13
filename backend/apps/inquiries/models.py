@@ -73,11 +73,11 @@ class Quote(models.Model):
 
     @property
     def subtotal(self) -> Decimal:
-        return sum((item.unit_price * item.quantity for item in self.items.all()), Decimal("0.00"))
+        return sum((item.line_total for item in self.items.all()), Decimal("0"))
 
     @property
     def tax_amount(self) -> Decimal:
-        return (self.subtotal * self.tax_rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (self.subtotal * self.tax_rate / Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
     @property
     def total(self) -> Decimal:
@@ -97,7 +97,7 @@ class QuoteItem(models.Model):
 
     @property
     def line_total(self) -> Decimal:
-        return self.unit_price * self.quantity
+        return self.unit_price.quantize(Decimal("1"), rounding=ROUND_HALF_UP) * self.quantity
 
     class Meta:
         ordering = ["id"]

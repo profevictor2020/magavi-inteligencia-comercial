@@ -7,11 +7,9 @@ register = template.Library()
 
 @register.filter
 def clp(value):
-    """Format a stored amount with Chilean separators without hiding real cents."""
-    amount = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    pesos, cents = f"{amount:,.2f}".split(".")
-    pesos = pesos.replace(",", ".")
-    return f"${pesos}" if cents == "00" else f"${pesos},{cents}"
+    """Format a quotation amount as whole Chilean pesos."""
+    amount = Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return f"${amount:,.0f}".replace(",", ".")
 
 
 @register.filter

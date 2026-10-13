@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 from django.utils import timezone
@@ -114,21 +114,18 @@ class PrivateQuoteRequestSerializer(serializers.ModelSerializer):
 
 
 class QuoteItemSerializer(serializers.ModelSerializer):
-    line_total = serializers.SerializerMethodField()
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=0, read_only=True, rounding=ROUND_HALF_UP)
+    line_total = serializers.DecimalField(max_digits=22, decimal_places=0, read_only=True)
 
     class Meta:
         model = QuoteItem
         fields = ("request_item", "product_name", "product_sku", "quantity", "unit_price", "line_total")
 
-    def get_line_total(self, obj):
-        return str(obj.unit_price * obj.quantity)
-
-
 class QuoteSerializer(serializers.ModelSerializer):
     items = QuoteItemSerializer(many=True, read_only=True)
-    subtotal = serializers.DecimalField(max_digits=22, decimal_places=2, read_only=True)
-    tax_amount = serializers.DecimalField(max_digits=22, decimal_places=2, read_only=True)
-    total = serializers.DecimalField(max_digits=22, decimal_places=2, read_only=True)
+    subtotal = serializers.DecimalField(max_digits=22, decimal_places=0, read_only=True)
+    tax_amount = serializers.DecimalField(max_digits=22, decimal_places=0, read_only=True)
+    total = serializers.DecimalField(max_digits=22, decimal_places=0, read_only=True)
 
     class Meta:
         model = Quote
@@ -137,7 +134,7 @@ class QuoteSerializer(serializers.ModelSerializer):
 
 class QuoteDraftItemSerializer(serializers.Serializer):
     request_item = serializers.IntegerField(min_value=1)
-    unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"))
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=0, min_value=Decimal("0"), error_messages={"max_decimal_places": "Ingresa el precio en pesos enteros, sin centavos."})
 
 
 class QuoteDraftSerializer(serializers.Serializer):
