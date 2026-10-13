@@ -48,6 +48,8 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Productos', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Café premium' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Café premium' })).toHaveAttribute('src', companyA.products[0].image_path)
+    expect(screen.queryByLabelText('Nombre completo')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Solicitar cotización/ })).toBeDisabled()
     expect(screen.queryByText('Servicio A')).not.toBeInTheDocument()
     expect(screen.queryByText('Empresa B')).not.toBeInTheDocument()
     expect(fetch).toHaveBeenCalledWith('/api/public/landing/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
@@ -77,17 +79,61 @@ describe('multi-tenant application routes', () => {
     render(<App />)
 
     await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })
-    fireEvent.click(screen.getByRole('checkbox', { name: /Café premium/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar a mi selección' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar Café premium' }))
+    expect(screen.getByRole('button', { name: /Solicitar cotización/ })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar a mi selección' }))
+    fireEvent.change(screen.getByLabelText('Cantidad de Café premium'), { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: /Solicitar cotización/ }))
+    expect(screen.getByText('Productos elegidos')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Cliente de prueba' } })
-    fireEvent.change(screen.getByLabelText('Correo electrónico'), { target: { value: 'cliente@example.test' } })
     fireEvent.click(screen.getByRole('checkbox', { name: /Autorizo/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Ingresa un correo electrónico o teléfono')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    fireEvent.change(screen.getByLabelText('Correo electrónico'), { target: { value: 'cliente@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Solicitud enviada')
+    expect(await screen.findByText(/Solicitud enviada/)).toBeInTheDocument()
     expect(fetch).toHaveBeenLastCalledWith('/api/inquiries/public/', expect.objectContaining({
       method: 'POST',
       body: expect.stringContaining('product-a'),
     }))
+    expect(fetch).toHaveBeenLastCalledWith('/api/inquiries/public/', expect.objectContaining({ body: expect.stringContaining('"quantity":3') }))
+    expect(screen.queryByLabelText('Nombre completo')).not.toBeInTheDocument()
+  })
+
+  it('filters a larger catalog while keeping the selected products', async () => {
+    const products = [companyA.products[0], ...Array.from({ length: 13 }, (_, index) => ({ ...companyA.products[0], id: `product-${index + 2}`, name: `Producto ${index + 2}`, description: 'Repostería artesanal', sku: `P-${index + 2}`, category: 'Repostería' }))]
+    mockJson({ ...companyA, products })
+    render(<App />)
+
+    await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })
+    expect(screen.getAllByRole('button', { name: 'Agregar a mi selección' })).toHaveLength(12)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Agregar a mi selección' })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar más productos' }))
+    expect(screen.getAllByRole('button', { name: 'Agregar a mi selección' })).toHaveLength(13)
+    fireEvent.change(screen.getByLabelText('Categoría'), { target: { value: 'Repostería' } })
+    expect(screen.queryByRole('heading', { name: 'Café premium' })).not.toBeInTheDocument()
+    expect(screen.getByText('1 producto elegido')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Buscar productos'), { target: { value: 'cafe' } })
+    expect(screen.getByText('No encontramos productos con esos filtros.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Limpiar búsqueda' }))
+    expect(screen.getByRole('heading', { name: 'Café premium' })).toBeInTheDocument()
+    expect(screen.getByText('1 producto elegido')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Buscar productos'), { target: { value: 'cafe' } })
+    expect(screen.getByRole('heading', { name: 'Café premium' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Buscar productos'), { target: { value: '' } })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Agregar a mi selección' })[0])
+    fireEvent.change(screen.getByLabelText('Cantidad de Producto 2'), { target: { value: '5' } })
+    fireEvent.click(screen.getByRole('button', { name: /Solicitar cotización/ }))
+    fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Cliente de prueba' } })
+    fireEvent.change(screen.getByLabelText('Correo electrónico'), { target: { value: 'cliente@example.test' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Autorizo/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar solicitud' }))
+    await waitFor(() => expect(fetch).toHaveBeenLastCalledWith('/api/inquiries/public/', expect.objectContaining({ method: 'POST' })))
+    const sent = JSON.parse(String(vi.mocked(fetch).mock.lastCall?.[1]?.body)) as { items: { product: string; quantity: number }[] }
+    expect(sent.items).toEqual([{ product: 'product-a', quantity: 1 }, { product: 'product-2', quantity: 5 }])
   })
 
   it('protects /app/ when the tenant context request is denied', async () => {
