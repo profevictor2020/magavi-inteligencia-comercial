@@ -147,7 +147,7 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Contactos y cotizaciones', level: 2 })).toBeInTheDocument()
   })
 
-  it('lets the owner update colors, contact email and logo', async () => {
+  it('lets the owner update company name, colors, contact email and logo', async () => {
     window.history.replaceState({}, '', '/app/')
     let tenant = { id: 'tenant-a', name: 'Empresa A', role: 'OWNER', logo_path: '/static/demo/empresa-a.svg', primary_color: '#145C5A', secondary_color: '#F4BC57', contact_email: 'old@example.test' }
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -166,17 +166,19 @@ describe('multi-tenant application routes', () => {
     const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
     fireEvent.click(nav.getByRole('button', { name: 'Mi marca' }))
     expect(screen.getByRole('heading', { name: 'Tu marca en la landing' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Nombre de la empresa'), { target: { value: 'Empresa Renovada' } })
     fireEvent.change(screen.getByLabelText('Código del color principal'), { target: { value: '#25364A' } })
     fireEvent.change(screen.getByLabelText('Código del color secundario'), { target: { value: '#E88C62' } })
     fireEvent.change(screen.getByLabelText('Correo de contacto'), { target: { value: 'ventas@example.test' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar colores y contacto' }))
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/tenant/context/', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"primary_color":"#25364A"') })))
-    expect(await screen.findByText(/Identidad visual guardada/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar identidad' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/tenant/context/', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"name":"Empresa Renovada"') })))
+    expect(await screen.findByText(/Identidad de la empresa guardada/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Empresa Renovada, inicio' })).toBeInTheDocument()
     const file = new File(['synthetic-logo'], 'logo.png', { type: 'image/png' })
     fireEvent.change(screen.getByLabelText('Seleccionar imagen'), { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: 'Subir logo' }))
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/tenant/logo/', expect.objectContaining({ method: 'POST', body: expect.any(FormData) })))
-    expect(await screen.findByAltText('Logo actual de Empresa A')).toHaveAttribute('src', '/api/public/logo/?v=123')
+    expect(await screen.findByAltText('Logo actual de Empresa Renovada')).toHaveAttribute('src', '/api/public/logo/?v=123')
   })
 
   it('lets marketing add an image and publish a catalog product', async () => {

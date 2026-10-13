@@ -226,6 +226,27 @@ def test_owner_brand_colors_and_contact_appear_on_public_landing(tenant_a, tenan
 
 
 @pytest.mark.django_db
+def test_only_owner_can_rename_company_and_public_landing_updates(tenant_a, tenant_b, users, memberships):
+    owner = APIClient()
+    owner.force_authenticate(users["owner"])
+    admin = APIClient()
+    admin.force_authenticate(users["admin"])
+    url = reverse("tenant-context")
+
+    assert admin.patch(url, {"name": "Nombre indebido"}, format="json", HTTP_HOST="empresa-a.localhost").status_code == 400
+    assert owner.patch(url, {"name": "   "}, format="json", HTTP_HOST="empresa-a.localhost").status_code == 400
+    assert owner.patch(url, {"name": "X" * 161}, format="json", HTTP_HOST="empresa-a.localhost").status_code == 400
+
+    response = owner.patch(url, {"name": "  Nueva Empresa A  "}, format="json", HTTP_HOST="empresa-a.localhost")
+    assert response.status_code == 200
+    assert response.json()["name"] == "Nueva Empresa A"
+    tenant_a.refresh_from_db()
+    assert tenant_a.name == "Nueva Empresa A"
+    assert APIClient().get(reverse("public-landing"), HTTP_HOST="empresa-a.localhost").json()["name"] == "Nueva Empresa A"
+    assert APIClient().get(reverse("public-landing"), HTTP_HOST="empresa-b.localhost").json()["name"] == tenant_b.name
+
+
+@pytest.mark.django_db
 def test_owner_uploads_persistent_logo_for_only_own_tenant(tenant_a, tenant_b, users, memberships):
     image = BytesIO()
     Image.new("RGBA", (24, 24), (37, 54, 74, 255)).save(image, format="PNG")
