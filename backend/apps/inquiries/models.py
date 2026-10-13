@@ -121,3 +121,61 @@ class QuoteItem(models.Model):
     class Meta:
         ordering = ["id"]
         constraints = [models.UniqueConstraint(fields=["quote", "request_item"], name="unique_request_item_per_quote")]
+
+
+class PurchaseOrder(models.Model):
+    class Status(models.TextChoices):
+        NEW = "NEW", "Nuevo"
+        CONFIRMED = "CONFIRMED", "Confirmado"
+        COMPLETED = "COMPLETED", "Completado"
+        CANCELLED = "CANCELLED", "Cancelado"
+
+    class DeliveryMethod(models.TextChoices):
+        COORDINATE = "COORDINATE", "Por coordinar"
+        PICKUP = "PICKUP", "Retiro"
+        SHIPPING = "SHIPPING", "Despacho"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.PositiveIntegerField(editable=False)
+    tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="purchase_orders")
+    full_name = models.CharField(max_length=160)
+    company_name = models.CharField(max_length=160, blank=True)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=40, blank=True)
+    delivery_method = models.CharField(max_length=12, choices=DeliveryMethod.choices)
+    delivery_address = models.CharField(max_length=300, blank=True)
+    notes = models.TextField(blank=True, max_length=1500)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.NEW)
+    consent_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [models.UniqueConstraint(fields=["tenant", "number"], name="unique_purchase_number_per_tenant")]
+        indexes = [models.Index(fields=["tenant", "status", "-created_at"], name="purchase_tenant_status_idx")]
+
+    @property
+    def folio(self) -> str:
+        return f"PED-{self.number:06d}"
+
+    @property
+    def total(self) -> Decimal:
+        return sum((item.line_total for item in self.items.all()), Decimal("0"))
+
+
+class PurchaseOrderItem(models.Model):
+    order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="purchase_order_items")
+    product_name = models.CharField(max_length=160)
+    product_sku = models.CharField(max_length=80)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=12, decimal_places=0)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [models.UniqueConstraint(fields=["order", "product"], name="unique_product_per_purchase_order")]
+
+    @property
+    def line_total(self) -> Decimal:
+        return self.unit_price * self.quantity

@@ -1,9 +1,12 @@
 from django.urls import path
 
-from .views import PublicQuoteRequestCreateView, QuoteFollowUpView, QuoteIssueView, QuotePrintView, QuoteRequestDetailView, QuoteRequestListView, QuoteView
+from .views import PublicPurchaseOrderCreateView, PublicQuoteRequestCreateView, PurchaseOrderDetailView, PurchaseOrderListView, QuoteFollowUpView, QuoteIssueView, QuotePrintView, QuoteRequestDetailView, QuoteRequestListView, QuoteView
 
 urlpatterns = [
     path("public/", PublicQuoteRequestCreateView.as_view(), name="public-quote-request"),
+    path("orders/public/", PublicPurchaseOrderCreateView.as_view(), name="public-purchase-order"),
+    path("orders/", PurchaseOrderListView.as_view(), name="purchase-order-list"),
+    path("orders/<uuid:pk>/", PurchaseOrderDetailView.as_view(), name="purchase-order-detail"),
     path("", QuoteRequestListView.as_view(), name="quote-request-list"),
     path("<uuid:pk>/", QuoteRequestDetailView.as_view(), name="quote-request-detail"),
     path("<uuid:pk>/quote/", QuoteView.as_view(), name="quote-detail"),

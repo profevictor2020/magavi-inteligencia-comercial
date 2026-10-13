@@ -103,6 +103,59 @@ describe('multi-tenant application routes', () => {
     expect(screen.queryByLabelText('Nombre completo')).not.toBeInTheDocument()
   })
 
+  it('places a purchase order from the same selection and shows its folio', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => companyA })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'order-1', folio: 'PED-000001' }) }))
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar a mi selección' }))
+    fireEvent.change(screen.getByLabelText('Cantidad de Café premium'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: /Comprar ahora/ }))
+    expect(screen.getByText('$49.980')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'Cliente de prueba' } })
+    fireEvent.change(screen.getByLabelText('Correo electrónico'), { target: { value: 'cliente@example.test' } })
+    fireEvent.change(screen.getByLabelText('Entrega'), { target: { value: 'SHIPPING' } })
+    fireEvent.change(screen.getByLabelText('Dirección de despacho'), { target: { value: 'Calle Falsa 123, Santiago' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Autorizo/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmar pedido' }))
+    expect(await screen.findByText(/Pedido PED-000001 registrado/)).toBeInTheDocument()
+    expect(fetch).toHaveBeenLastCalledWith('/api/inquiries/orders/public/', expect.objectContaining({
+      method: 'POST', body: expect.stringContaining('"delivery_method":"SHIPPING"'),
+    }))
+  })
+
+  it('keeps quote available when a selected product has no price', async () => {
+    mockJson({ ...companyA, products: [{ ...companyA.products[0], price: null }] })
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })
+    fireEvent.click(screen.getByRole('button', { name: 'Agregar a mi selección' }))
+    expect(screen.getByRole('button', { name: /Comprar ahora/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Solicitar cotización/ })).toBeEnabled()
+  })
+
+  it('shows a tenant order in /app and lets the owner confirm it', async () => {
+    window.history.replaceState({}, '', '/app/')
+    const order = { id: 'order-1', folio: 'PED-000001', full_name: 'Cliente de prueba', company_name: '', email: 'cliente@example.test', phone: '', delivery_method: 'PICKUP', delivery_address: '', notes: '', status: 'NEW', items: [{ product_name: 'Café premium', product_sku: 'CAFE-001', quantity: 2, unit_price: 24990, line_total: 49980 }], total: 49980, created_at: '2026-10-13T12:00:00Z' }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.endsWith('/inquiries/orders/') ? [order]
+            : url.includes('/inquiries/orders/order-1/') ? { ...order, status: 'CONFIRMED' }
+              : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Pedidos/ }))
+    expect(screen.getByText('PED-000001')).toBeInTheDocument()
+    expect(screen.getAllByText('$49.980')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Marcar confirmado' }))
+    expect(await screen.findByRole('button', { name: 'Marcar completado' })).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledWith('/api/inquiries/orders/order-1/', expect.objectContaining({ method: 'PATCH', body: '{"status":"CONFIRMED"}' }))
+  })
+
   it('filters a larger catalog while keeping the selected products', async () => {
     const products = [companyA.products[0], ...Array.from({ length: 13 }, (_, index) => ({ ...companyA.products[0], id: `product-${index + 2}`, name: `Producto ${index + 2}`, description: 'Repostería artesanal', sku: `P-${index + 2}`, category: 'Repostería' }))]
     mockJson({ ...companyA, products })

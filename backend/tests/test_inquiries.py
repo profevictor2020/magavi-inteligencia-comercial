@@ -4,7 +4,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.catalog.models import Category, Product
-from apps.inquiries.models import QuoteRequest
+from apps.inquiries.models import PurchaseOrder, QuoteRequest
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
 
@@ -68,6 +68,114 @@ def authenticated_client(user):
     client = APIClient()
     client.force_authenticate(user)
     return client
+
+
+def purchase_payload(product_id):
+    return {
+        "full_name": "Cliente de compra",
+        "email": "comprador@example.test",
+        "phone": "",
+        "delivery_method": "SHIPPING",
+        "delivery_address": "Calle Falsa 123, Santiago",
+        "notes": "Llamar antes de entregar",
+        "items": [{"product": str(product_id), "quantity": 2}],
+        "consent": True,
+        "website": "",
+    }
+
+
+@pytest.mark.django_db
+def test_public_purchase_snapshots_pesos_and_exposes_order_to_tenant(inquiry_context):
+    tenant_a, _, product_a, _, owner, _ = inquiry_context
+    product_a.price = 24990
+    product_a.save(update_fields=["price"])
+    response = APIClient().post(reverse("public-purchase-order"), purchase_payload(product_a.id), format="json", HTTP_HOST="inquiry-a.localhost")
+    assert response.status_code == 201
+    assert response.json()["folio"] == "PED-000001"
+    assert response.json()["total"] == 49980
+    order = PurchaseOrder.objects.get()
+    assert order.tenant == tenant_a
+    assert order.status == PurchaseOrder.Status.NEW
+    assert order.items.get().unit_price == 24990
+    product_a.price = 30000
+    product_a.name = "Café nuevo"
+    product_a.save(update_fields=["price", "name"])
+    assert order.total == 49980
+    assert order.items.get().product_name == "Café"
+    private = authenticated_client(owner).get(reverse("purchase-order-list"), HTTP_HOST="inquiry-a.localhost")
+    assert private.status_code == 200
+    assert private.json()[0]["folio"] == "PED-000001"
+
+
+@pytest.mark.django_db
+def test_public_purchase_rejects_unpriced_foreign_or_unpublished_products(inquiry_context):
+    _, _, product_a, product_b, _, _ = inquiry_context
+    client = APIClient()
+    for product in (product_a, product_b):
+        response = client.post(reverse("public-purchase-order"), purchase_payload(product.id), format="json", HTTP_HOST="inquiry-a.localhost")
+        assert response.status_code == 400
+    product_a.price = 24990
+    product_a.is_published = False
+    product_a.save(update_fields=["price", "is_published"])
+    response = client.post(reverse("public-purchase-order"), purchase_payload(product_a.id), format="json", HTTP_HOST="inquiry-a.localhost")
+    assert response.status_code == 400
+    assert PurchaseOrder.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_public_purchase_requires_shipping_address_and_blocks_duplicate_products(inquiry_context):
+    _, _, product_a, _, _, _ = inquiry_context
+    product_a.price = 24990
+    product_a.save(update_fields=["price"])
+    data = purchase_payload(product_a.id)
+    data["delivery_address"] = ""
+    client = APIClient()
+    assert client.post(reverse("public-purchase-order"), data, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 400
+    data["delivery_address"] = "Santiago"
+    data["items"].append(data["items"][0])
+    assert client.post(reverse("public-purchase-order"), data, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 400
+    assert PurchaseOrder.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_public_purchase_rejects_cents_and_unknown_company(inquiry_context):
+    _, _, product_a, _, _, _ = inquiry_context
+    product_a.price = "24990.50"
+    product_a.save(update_fields=["price"])
+    data = purchase_payload(product_a.id)
+    assert APIClient().post(reverse("public-purchase-order"), data, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 400
+    assert APIClient().post(reverse("public-purchase-order"), data, format="json", HTTP_HOST="unknown.localhost").status_code == 404
+    assert PurchaseOrder.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_public_purchase_can_coordinate_delivery_without_address(inquiry_context):
+    _, _, product_a, _, _, _ = inquiry_context
+    product_a.price = 24990
+    product_a.save(update_fields=["price"])
+    data = purchase_payload(product_a.id)
+    data["delivery_method"] = "COORDINATE"
+    data["delivery_address"] = ""
+    response = APIClient().post(reverse("public-purchase-order"), data, format="json", HTTP_HOST="inquiry-a.localhost")
+    assert response.status_code == 201
+    assert response.json()["delivery_address"] == ""
+
+
+@pytest.mark.django_db
+def test_purchase_status_permissions_and_tenant_isolation(inquiry_context):
+    _, _, product_a, _, owner, viewer = inquiry_context
+    product_a.price = 24990
+    product_a.save(update_fields=["price"])
+    APIClient().post(reverse("public-purchase-order"), purchase_payload(product_a.id), format="json", HTTP_HOST="inquiry-a.localhost")
+    order = PurchaseOrder.objects.get()
+    url = reverse("purchase-order-detail", args=[order.id])
+    assert authenticated_client(viewer).patch(url, {"status": "CONFIRMED"}, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 403
+    assert authenticated_client(owner).patch(url, {"status": "COMPLETED"}, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 400
+    updated = authenticated_client(owner).patch(url, {"status": "CONFIRMED"}, format="json", HTTP_HOST="inquiry-a.localhost")
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "CONFIRMED"
+    assert authenticated_client(owner).get(url, HTTP_HOST="inquiry-b.localhost").status_code == 403
+    assert APIClient().get(reverse("purchase-order-list"), HTTP_HOST="inquiry-a.localhost").status_code == 403
 
 
 @pytest.mark.django_db

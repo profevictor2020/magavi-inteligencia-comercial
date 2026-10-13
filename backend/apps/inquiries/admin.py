@@ -1,6 +1,25 @@
 from django.contrib import admin
 
-from .models import Quote, QuoteItem, QuoteRequest, QuoteRequestItem
+from .models import PurchaseOrder, PurchaseOrderItem, Quote, QuoteItem, QuoteRequest, QuoteRequestItem
+
+
+class PurchaseOrderItemInline(admin.TabularInline):
+    model = PurchaseOrderItem
+    extra = 0
+    readonly_fields = ("product", "product_name", "product_sku", "quantity", "unit_price")
+    can_delete = False
+
+
+@admin.register(PurchaseOrder)
+class PurchaseOrderAdmin(admin.ModelAdmin):
+    list_display = ("folio", "full_name", "tenant", "status", "delivery_method", "created_at")
+    list_filter = ("status", "tenant")
+    search_fields = ("full_name", "company_name", "email", "phone")
+    readonly_fields = ("tenant", "number", "full_name", "company_name", "email", "phone", "delivery_method", "delivery_address", "notes", "consent_at", "created_at", "updated_at")
+    inlines = (PurchaseOrderItemInline,)
+
+    def has_add_permission(self, request):
+        return False
 
 
 class QuoteRequestItemInline(admin.TabularInline):
