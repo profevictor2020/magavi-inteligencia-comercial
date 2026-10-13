@@ -28,7 +28,7 @@ class QuoteItemInline(admin.TabularInline):
 
 @admin.register(Quote)
 class QuoteAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "request", "status", "valid_until", "created_at")
+    list_display = ("folio", "tenant", "request", "status", "valid_until", "created_at")
     list_filter = ("status", "tenant")
     readonly_fields = ("tenant", "request", "status", "valid_until", "tax_rate", "notes", "issued_at", "created_at", "updated_at")
     inlines = (QuoteItemInline,)

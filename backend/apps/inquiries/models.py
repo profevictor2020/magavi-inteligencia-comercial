@@ -53,6 +53,7 @@ class Quote(models.Model):
         ISSUED = "ISSUED", "Emitida"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    number = models.PositiveIntegerField(editable=False)
     tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="quotes")
     request = models.OneToOneField(QuoteRequest, on_delete=models.PROTECT, related_name="quote")
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.DRAFT)
@@ -63,20 +64,27 @@ class Quote(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["tenant", "number"], name="unique_quote_number_per_tenant")]
+
+    @property
+    def folio(self) -> str:
+        return f"COT-{self.number:06d}"
+
     @property
     def subtotal(self) -> Decimal:
-        return sum((item.unit_price * item.quantity for item in self.items.all()), Decimal("0.00"))
+        return sum((item.line_total for item in self.items.all()), Decimal("0"))
 
     @property
     def tax_amount(self) -> Decimal:
-        return (self.subtotal * self.tax_rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return (self.subtotal * self.tax_rate / Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
     @property
     def total(self) -> Decimal:
         return self.subtotal + self.tax_amount
 
     def __str__(self) -> str:
-        return f"Cotización {self.id} · {self.tenant}"
+        return f"Cotización {self.folio} · {self.tenant}"
 
 
 class QuoteItem(models.Model):
@@ -89,7 +97,7 @@ class QuoteItem(models.Model):
 
     @property
     def line_total(self) -> Decimal:
-        return self.unit_price * self.quantity
+        return self.unit_price.quantize(Decimal("1"), rounding=ROUND_HALF_UP) * self.quantity
 
     class Meta:
         ordering = ["id"]

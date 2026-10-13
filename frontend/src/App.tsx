@@ -68,6 +68,7 @@ type QuoteInquiry = {
 
 type FormalQuote = {
   id: string
+  folio: string
   status: 'DRAFT' | 'ISSUED'
   valid_until: string
   tax_rate: string
@@ -422,26 +423,26 @@ function CatalogImportPanel({ csrfToken, onConfirmed }: { csrfToken: string; onC
   )
 }
 
-function QuotePanel({ inquiry, products, canEdit, csrfToken, onSaved, onError }: {
+function QuotePanel({ inquiry, products, canEdit, csrfToken, onSaved }: {
   inquiry: QuoteInquiry
   products: Product[]
   canEdit: boolean
   csrfToken: string
   onSaved: (quote: FormalQuote) => void
-  onError: (message: string) => void
 }) {
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
   const quote = inquiry.quote
   const today = new Date().toISOString().slice(0, 10)
   const defaultValidity = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
   const endpoint = `/api/inquiries/${inquiry.id}/quote/`
-  const currency = (value: string) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(Number(value))
+  const currency = (value: string) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(value))
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
     setBusy(true)
-    onError('')
+    setError('')
     const data = new FormData(event.currentTarget)
     const payload = {
       valid_until: data.get('valid_until'),
@@ -458,14 +459,14 @@ function QuotePanel({ inquiry, products, canEdit, csrfToken, onSaved, onError }:
       if (!response.ok) throw new Error('Revisa la vigencia, los precios y los productos de la cotización.')
       onSaved(await response.json() as FormalQuote)
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'No fue posible guardar la cotización.')
+      setError(error instanceof Error ? error.message : 'No fue posible guardar la cotización.')
     } finally { setBusy(false) }
   }
 
   async function issue() {
     if (busy || !quote) return
     setBusy(true)
-    onError('')
+    setError('')
     try {
       const response = await fetch(endpoint + 'issue/', {
         method: 'POST', credentials: 'same-origin',
@@ -474,25 +475,54 @@ function QuotePanel({ inquiry, products, canEdit, csrfToken, onSaved, onError }:
       if (!response.ok) throw new Error('No fue posible emitir la cotización. Revisa su vigencia.')
       onSaved(await response.json() as FormalQuote)
     } catch (error) {
-      onError(error instanceof Error ? error.message : 'No fue posible emitir la cotización.')
+      setError(error instanceof Error ? error.message : 'No fue posible emitir la cotización.')
     } finally { setBusy(false) }
   }
 
   return <section className="quote-panel" aria-label={`Cotización de ${inquiry.full_name}`}>
-    <h3>{quote ? `Cotización ${quote.id.slice(0, 8).toUpperCase()} · ${quote.status === 'ISSUED' ? 'Emitida' : 'Borrador'}` : 'Preparar cotización'}</h3>
-    {quote && <div className="quote-totals"><span>Subtotal: {currency(quote.subtotal)}</span><span>Impuesto ({quote.tax_rate}%): {currency(quote.tax_amount)}</span><strong>Total: {currency(quote.total)}</strong><small>Válida hasta {quote.valid_until}</small></div>}
-    {quote?.status === 'ISSUED' && <p>Cotización emitida. <a href={endpoint + 'print/'} target="_blank" rel="noopener noreferrer">Abrir documento para imprimir o guardar como PDF</a>. Compártelo con el cliente por el canal acordado.</p>}
+    <div className="quote-panel-heading"><div><span className="eyebrow">PROPUESTA COMERCIAL</span><h3>{quote ? `Cotización ${quote.folio}` : 'Preparar cotización'}</h3></div>{quote && <span className={`quote-state ${quote.status.toLowerCase()}`}>{quote.status === 'ISSUED' ? 'Emitida' : 'Borrador'}</span>}</div>
+    {quote && <div className="quote-totals"><div><span>Subtotal</span><strong>{currency(quote.subtotal)}</strong></div><div><span>IVA ({Number(quote.tax_rate).toLocaleString('es-CL')}%)</span><strong>{currency(quote.tax_amount)}</strong></div><div className="quote-total"><span>Total</span><strong>{currency(quote.total)}</strong></div></div>}
+    {quote?.status === 'ISSUED' && <div className="quote-issued"><p>Emitida · Vigente hasta el {quote.valid_until.split('-').reverse().join('/')}. Puedes imprimirla o guardarla en PDF.</p><a className="quote-primary-button" href={endpoint + 'print/'} target="_blank" rel="noopener noreferrer">Abrir documento para imprimir o guardar como PDF</a></div>}
     {canEdit && quote?.status !== 'ISSUED' && <form key={quote?.id ?? inquiry.id} onSubmit={save} className="quote-editor">
-      {inquiry.items.map((item) => <label key={item.id}>{item.product_name} × {item.quantity} · Precio unitario (CLP)
-        <input name={`price-${item.id}`} type="number" min="0" step="0.01" required defaultValue={quote?.items.find((line) => line.request_item === item.id)?.unit_price ?? products.find((product) => product.id === item.product)?.price ?? ''} />
-      </label>)}
-      <label>Válida hasta<input name="valid_until" type="date" min={today} required defaultValue={quote?.valid_until ?? defaultValidity} /></label>
-      <label>Impuesto (%)<input name="tax_rate" type="number" min="0" max="100" step="0.01" required defaultValue={quote?.tax_rate ?? '19.00'} /></label>
-      <label>Condiciones<textarea name="notes" maxLength={1500} defaultValue={quote?.notes ?? ''} /></label>
-      <button type="submit" disabled={busy || !csrfToken}>{busy ? 'Guardando…' : quote ? 'Actualizar borrador' : 'Crear borrador'}</button>
-      {quote && <button type="button" onClick={issue} disabled={busy || !csrfToken}>Emitir cotización</button>}
+      <div className="quote-editor-intro"><strong>Detalle de productos</strong><span>Ingresa precios en pesos chilenos, sin centavos.</span></div>
+      <div className="quote-price-list">{inquiry.items.map((item) => {
+        const price = quote?.items.find((line) => line.request_item === item.id)?.unit_price ?? products.find((product) => product.id === item.product)?.price
+        return <div className="quote-price-row" key={item.id}><div><strong>{item.product_name}</strong><small>{item.product_sku} · {item.quantity} unidad{item.quantity === 1 ? '' : 'es'}</small></div><label>Precio unitario <span>(CLP)</span><div className="quote-price-input"><span aria-hidden="true">$</span><input name={`price-${item.id}`} type="number" inputMode="numeric" min="0" step="1" required placeholder="0" defaultValue={price == null ? '' : Math.round(Number(price))} aria-label={`${item.product_name} × ${item.quantity} · Precio unitario en pesos`} /></div></label></div>
+      })}</div>
+      <div className="quote-editor-fields"><label>Válida hasta<input name="valid_until" type="date" min={today} required defaultValue={quote?.valid_until ?? defaultValidity} /></label><label>IVA (%)<input name="tax_rate" type="number" min="0" max="100" step="0.01" required defaultValue={quote?.tax_rate ?? '19.00'} /></label><label className="quote-notes">Condiciones comerciales <span>Opcional</span><textarea name="notes" maxLength={1500} rows={3} placeholder="Ej.: plazo de entrega, forma de pago o retiro" defaultValue={quote?.notes ?? ''} /></label></div>
+      {error && <p className="quote-error" role="alert">{error}</p>}
+      <div className="quote-actions"><button className="quote-primary-button" type="submit" disabled={busy || !csrfToken}>{busy ? 'Guardando…' : quote ? 'Guardar cambios' : 'Crear borrador'}</button>{quote && <button className="quote-secondary-button" type="button" onClick={issue} disabled={busy || !csrfToken}>Emitir cotización</button>}</div>
+      {quote && <p className="quote-save-hint">Antes de emitir, guarda cualquier cambio pendiente. La emisión usa el último borrador guardado.</p>}
     </form>}
   </section>
+}
+
+function InquiryCard({ inquiry, expanded, onToggle, products, canEdit, csrfToken, onStatusChange, onQuoteSaved }: {
+  inquiry: QuoteInquiry
+  expanded: boolean
+  onToggle: () => void
+  products: Product[]
+  canEdit: boolean
+  csrfToken: string
+  onStatusChange: (status: QuoteInquiry['status']) => void
+  onQuoteSaved: (quote: FormalQuote) => void
+}) {
+  const statusLabel = { NEW: 'Nueva', CONTACTED: 'Contactada', CLOSED: 'Cerrada' }[inquiry.status]
+  return <article className={`inquiry-card ${expanded ? 'is-open' : ''}`}>
+    <button type="button" className="inquiry-card-toggle" aria-expanded={expanded} aria-controls={`inquiry-detail-${inquiry.id}`} onClick={onToggle}>
+      <span className="inquiry-card-top"><span className="inquiry-card-person"><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></span><span className="inquiry-card-chevron" aria-hidden="true">⌄</span></span>
+      <span className="inquiry-card-meta"><span className={`inquiry-status status-${inquiry.status.toLowerCase()}`}>{statusLabel}</span><span>{inquiry.quote ? `${inquiry.quote.folio} · ${inquiry.quote.status === 'ISSUED' ? 'Emitida' : 'Borrador'}` : 'Sin cotización'}</span></span>
+      <span className="inquiry-card-summary">{inquiry.items.map((item) => `${item.product_name} × ${item.quantity}`).join(' · ')}</span>
+      <span className="inquiry-card-footer"><time dateTime={inquiry.created_at}>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time><span>{expanded ? 'Cerrar solicitud' : 'Ver solicitud y cotizar'}</span></span>
+    </button>
+    {expanded && <div id={`inquiry-detail-${inquiry.id}`} className="inquiry-detail">
+      <div className="inquiry-detail-heading"><div><span className="eyebrow">SOLICITUD</span><h3>Datos del cliente</h3></div>{canEdit && <label>Estado<select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => onStatusChange(event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select></label>}</div>
+      <div className="inquiry-detail-contact">{inquiry.email && <a href={`mailto:${inquiry.email}`}>{inquiry.email}</a>}{inquiry.phone && <a href={`tel:${inquiry.phone}`}>{inquiry.phone}</a>}</div>
+      {inquiry.message && <p className="inquiry-message">{inquiry.message}</p>}
+      <div className="inquiry-request-items"><strong>Productos solicitados</strong><ul>{inquiry.items.map((item) => <li key={item.id}><span>{item.product_name}</span><strong>× {item.quantity}</strong></li>)}</ul></div>
+      <QuotePanel inquiry={inquiry} products={products} canEdit={canEdit} csrfToken={csrfToken} onSaved={onQuoteSaved} />
+    </div>}
+  </article>
 }
 
 function PrivateApp() {
@@ -509,6 +539,7 @@ function PrivateApp() {
   const [opportunityStatus, setOpportunityStatus] = useState<'ALL' | Opportunity['status']>('ALL')
   const [generatingOpportunities, setGeneratingOpportunities] = useState(false)
   const [prospectSearch, setProspectSearch] = useState('')
+  const [openInquiryId, setOpenInquiryId] = useState<string | null>(null)
   const [csrfToken, setCsrfToken] = useState('')
   const [catalogError, setCatalogError] = useState('')
 
@@ -821,7 +852,10 @@ function PrivateApp() {
           {opportunities.length === 0 ? <div className="empty-catalog"><strong>Aún no hay oportunidades.</strong><p>Configura industrias o palabras clave en el catálogo, registra prospectos y ejecuta el cálculo.</p></div> : <div className="opportunity-grid">{opportunities.filter((item) => opportunityStatus === 'ALL' || item.status === opportunityStatus).map((opportunity) => <article key={opportunity.id}><header><div className={`score-badge score-${opportunity.score >= 75 ? 'high' : opportunity.score >= 50 ? 'medium' : 'low'}`}><strong>{opportunity.score}</strong><small>/100</small></div><div><span>{opportunity.prospect_name}</span><h3>{opportunity.product_name}</h3><small>{opportunity.prospect_industry || 'Sin rubro'} · {opportunity.territory_name || 'Sin territorio'}</small></div></header><p>{opportunity.explanation}</p><div className="score-breakdown">{Object.entries(opportunity.score_breakdown).filter(([, value]) => value > 0).map(([criterion, value]) => <span key={criterion}>{({ industry: 'Rubro', keywords: 'Señales', territory: 'Territorio', contact: 'Contacto', data_quality: 'Calidad', priority: 'Prioridad' } as Record<string, string>)[criterion] ?? criterion} +{value}</span>)}</div><footer><small>Fórmula {opportunity.score_version}</small>{canEdit ? <select aria-label={`Revisar ${opportunity.prospect_name} y ${opportunity.product_name}`} value={opportunity.status} onChange={(event) => reviewOpportunity(opportunity, event.target.value as Opportunity['status'])}><option value="PENDING">Pendiente</option><option value="ACCEPTED">Aceptar</option><option value="POSTPONED">Postergar</option><option value="DISCARDED">Descartar</option></select> : <strong>{opportunity.status}</strong>}</footer>{opportunity.review_reason && <p className="review-reason">Motivo: {opportunity.review_reason}</p>}</article>)}</div>}
         </section>}
 
-        {activeSection === 'inquiries' && <section className="catalog-list inquiry-list"><div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2></div><strong>{inquiries.length}</strong></div>{inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <article key={inquiry.id}><div className="inquiry-title"><div><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></div>{canEdit ? <select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => updateInquiryStatus(inquiry, event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select> : <span>{inquiry.status}</span>}</div><p>{inquiry.message || 'Sin mensaje adicional.'}</p><div className="inquiry-contact"><span>{inquiry.email || inquiry.phone}</span><time>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time></div><ul>{inquiry.items.map((item) => <li key={item.product}>{item.product_name} × {item.quantity}</li>)}</ul><QuotePanel inquiry={inquiry} products={products} canEdit={canEdit} csrfToken={csrfToken} onSaved={(quote) => setInquiries((current) => current.map((item) => item.id === inquiry.id ? { ...item, quote } : item))} onError={setCatalogError} /></article>)}</div>}</section>}
+        {activeSection === 'inquiries' && <section className="catalog-list inquiry-list">
+          <div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2><p>Selecciona una solicitud para revisar los datos del cliente y preparar su cotización.</p></div><strong>{inquiries.length} solicitud{inquiries.length === 1 ? '' : 'es'}</strong></div>
+          {inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <InquiryCard key={inquiry.id} inquiry={inquiry} expanded={openInquiryId === inquiry.id} onToggle={() => setOpenInquiryId((current) => current === inquiry.id ? null : inquiry.id)} products={products} canEdit={canEdit} csrfToken={csrfToken} onStatusChange={(status) => updateInquiryStatus(inquiry, status)} onQuoteSaved={(quote) => setInquiries((current) => current.map((item) => item.id === inquiry.id ? { ...item, quote } : item))} />)}</div>}
+        </section>}
       </div>
     </main>
   )

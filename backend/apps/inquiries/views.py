@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Max
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
@@ -10,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from apps.tenancy.models import Tenant
 from apps.tenancy.permissions import TenantRolePermission
 
 from .models import Quote, QuoteItem, QuoteRequest
@@ -71,7 +73,10 @@ class QuoteView(APIView):
             serializer.is_valid(raise_exception=True)
             data = serializer.validated_data
             if create:
-                quote = Quote.objects.create(tenant=request.tenant, request=source, valid_until=data["valid_until"], tax_rate=data["tax_rate"], notes=data.get("notes", ""))
+                Tenant.objects.select_for_update().get(pk=request.tenant.pk)
+                last_number = Quote.objects.filter(tenant=request.tenant).aggregate(Max("number"))["number__max"] or 0
+                quote = Quote.objects.create(tenant=request.tenant, request=source, number=last_number + 1,
+                                             valid_until=data["valid_until"], tax_rate=data["tax_rate"], notes=data.get("notes", ""))
             else:
                 quote.valid_until = data["valid_until"]
                 quote.tax_rate = data["tax_rate"]
