@@ -1,4 +1,5 @@
 import { type CSSProperties, type FormEvent, useEffect, useState } from 'react'
+import { buildCommercialInsights, type CommercialPriority } from './commercialInsights'
 
 type LandingData = {
   name: string
@@ -861,6 +862,7 @@ function PrivateApp() {
   const issuedInquiries = inquiries.filter((inquiry) => inquiry.quote?.status === 'ISSUED')
   const todayChile = todayInChile()
   const attentionCount = issuedInquiries.filter((inquiry) => inquiry.quote && needsQuoteAttention(inquiry.quote, todayChile)).length
+  const insights = buildCommercialInsights(inquiries, orders, todayChile)
   const visibleQuotes = issuedInquiries.filter((inquiry) => {
     const quote = inquiry.quote
     if (!quote) return false
@@ -868,6 +870,18 @@ function PrivateApp() {
     const matchesSearch = `${inquiry.full_name} ${inquiry.company_name} ${quote.folio}`.toLocaleLowerCase('es-CL').includes(trackingSearch.toLocaleLowerCase('es-CL'))
     return matchesFilter && matchesSearch
   })
+
+  function openPriority(priority: CommercialPriority) {
+    if (priority.section === 'inquiries') setOpenInquiryId(priority.target)
+    if (priority.section === 'quoteTracking') {
+      setTrackingFilter('ALL')
+      setTrackingSearch(priority.target)
+    }
+    setActiveSection(priority.section)
+    if (priority.section === 'orders') {
+      window.setTimeout(() => document.getElementById(`order-${priority.target}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }), 0)
+    }
+  }
 
   async function createCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -1083,11 +1097,18 @@ function PrivateApp() {
         <section className="private-heading">
           <span className="eyebrow">ÁREA PRIVADA</span>
           <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ branding: 'Identidad de la empresa', marketing: 'Marketing y vitrina pública', catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', orders: 'Pedidos de clientes', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
-          <p>Selecciona una opción del menú para administrar esta empresa.</p>
+          <p>{activeSection === 'summary' ? 'Revisa qué necesita atención hoy y cómo avanza tu gestión comercial.' : 'Selecciona una opción del menú para administrar esta empresa.'}</p>
         </section>
         {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
 
-        {activeSection === 'summary' && <section className="summary-grid" aria-label="Resumen de la empresa">
+        {activeSection === 'summary' && <section className="commercial-dashboard" aria-label="Tablero de prioridades comerciales">
+          <div className="dashboard-intro"><div><span className="eyebrow">INTELIGENCIA COMERCIAL</span><h2>Prioridades para hoy</h2><p>Acciones calculadas con solicitudes, cotizaciones y pedidos registrados.</p></div><strong>{insights.priorities.length} pendiente{insights.priorities.length === 1 ? '' : 's'}</strong></div>
+          {insights.priorities.length === 0 ? <p className="dashboard-empty">No hay gestiones urgentes por ahora. Revisa las solicitudes y el seguimiento cuando lleguen nuevos contactos.</p> : <div className="dashboard-priorities">{insights.priorities.slice(0, 8).map((priority) => <button key={priority.key} type="button" onClick={() => openPriority(priority)}><span className="dashboard-priority-marker" aria-hidden="true" /><span><strong>{priority.title}</strong><small>{priority.detail}</small></span><span aria-hidden="true">↗</span></button>)}</div>}
+          {insights.priorities.length > 8 && <p className="dashboard-more">Se muestran las primeras 8 de {insights.priorities.length} gestiones pendientes.</p>}
+          <div className="dashboard-metrics" aria-label="Indicadores comerciales"><div><span>Cotizaciones emitidas</span><strong>{insights.issued}</strong></div><div><span>Aceptadas / emitidas</span><strong>{insights.acceptanceRate === null ? '—' : `${insights.acceptanceRate}%`}</strong><small>{insights.accepted} aceptadas de {insights.issued} emitidas</small></div><div><span>Pedidos completados</span><strong>{insights.completedOrders}</strong></div></div>
+          <div className="dashboard-insights"><section><h3>Productos más solicitados</h3><p>Unidades solicitadas en cotizaciones, sin incluir pedidos directos.</p>{insights.topProducts.length ? <ol>{insights.topProducts.map((product) => <li key={product.sku}><span>{product.name}</span><strong>{product.quantity}</strong></li>)}</ol> : <p>Aún no hay productos solicitados.</p>}</section><section><h3>Contactos recurrentes</h3><p>Personas con dos o más solicitudes y sin pedido registrado con el mismo correo o teléfono.</p>{insights.repeatedContacts.length ? <ul>{insights.repeatedContacts.slice(0, 5).map((contact) => <li key={contact.key}><span>{contact.name}</span><strong>{contact.count} solicitudes</strong></li>)}</ul> : <p>Aún no hay contactos recurrentes en esta situación.</p>}</section></div>
+          <h2 className="dashboard-shortcuts-title">Explorar la empresa</h2>
+          <div className="summary-grid" aria-label="Secciones de la empresa">
           {state.data.role === 'OWNER' && <button onClick={() => setActiveSection('branding')}><span>Mi marca</span><strong>↗</strong><small>nombre, colores, correo y logo</small></button>}
           <button onClick={() => setActiveSection('marketing')}><span>Marketing</span><strong>{products.filter((product) => product.is_published).length}</strong><small>productos publicados e imágenes</small></button>
           <button onClick={() => setActiveSection('catalog')}><span>Catálogo</span><strong>{products.length}</strong><small>productos registrados</small></button>
@@ -1097,6 +1118,7 @@ function PrivateApp() {
           <button onClick={() => setActiveSection('inquiries')}><span>Solicitudes</span><strong>{inquiries.length}</strong><small>contactos recibidos</small></button>
           <button onClick={() => setActiveSection('orders')}><span>Pedidos</span><strong>{orders.filter((order) => order.status === 'NEW').length}</strong><small>nuevos por gestionar</small></button>
           <button onClick={() => setActiveSection('quoteTracking')}><span>Seguimiento</span><strong>{attentionCount}</strong><small>cotizaciones que requieren atención</small></button>
+          </div>
         </section>}
 
         {activeSection === 'branding' && state.data.role === 'OWNER' && <BrandSettingsPanel tenant={state.data} csrfToken={csrfToken} onSaved={(tenant) => setState({ phase: 'ready', data: tenant })} />}
@@ -1166,7 +1188,7 @@ function PrivateApp() {
         {activeSection === 'orders' && <section className="catalog-list order-list">
           <div className="catalog-list-heading"><div><span className="eyebrow">COMPRAS</span><h2>Pedidos recibidos</h2><p>Confirma cada pedido con el cliente y coordina entrega y pago por tu cuenta.</p></div><strong>{orders.length} pedido{orders.length === 1 ? '' : 's'}</strong></div>
           {orderError && <p className="quote-error" role="alert">{orderError}</p>}
-          {orders.length === 0 ? <p className="empty-catalog">Todavía no hay pedidos.</p> : <div className="order-grid">{orders.map((order) => <article className="order-card" key={order.id}>
+          {orders.length === 0 ? <p className="empty-catalog">Todavía no hay pedidos.</p> : <div className="order-grid">{orders.map((order) => <article className="order-card" id={`order-${order.id}`} key={order.id}>
             <header><div><span className="eyebrow">{order.folio}</span><h3>{order.full_name}</h3><small>{order.company_name || 'Cliente particular'} · {new Date(order.created_at).toLocaleDateString('es-CL')}</small></div><span className={`order-status status-${order.status.toLowerCase()}`}>{({ NEW: 'Nuevo', CONFIRMED: 'Confirmado', COMPLETED: 'Completado', CANCELLED: 'Cancelado' } as const)[order.status]}</span></header>
             <div className="order-contact">{order.email && <a href={`mailto:${order.email}`}>{order.email}</a>}{order.phone && <a href={`tel:${order.phone}`}>{order.phone}</a>}</div>
             <p><strong>Entrega:</strong> {({ COORDINATE: 'Por coordinar', PICKUP: 'Retiro', SHIPPING: 'Despacho' } as const)[order.delivery_method]}{order.delivery_address ? ` · ${order.delivery_address}` : ''}</p>

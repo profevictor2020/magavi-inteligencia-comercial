@@ -157,6 +157,24 @@ describe('multi-tenant application routes', () => {
     expect(fetch).toHaveBeenCalledWith('/api/inquiries/orders/order-1/', expect.objectContaining({ method: 'PATCH', body: '{"status":"CONFIRMED"}' }))
   })
 
+  it('opens the matching order from the commercial priorities dashboard', async () => {
+    window.history.replaceState({}, '', '/app/')
+    const order = { id: 'order-1', folio: 'PED-000001', full_name: 'Cliente de prueba', company_name: '', email: 'cliente@example.test', phone: '', delivery_method: 'PICKUP', delivery_address: '', notes: '', status: 'NEW', items: [], total: 0, created_at: '2026-10-13T12:00:00Z' }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.endsWith('/inquiries/orders/') ? [order] : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const dashboard = await screen.findByRole('region', { name: 'Tablero de prioridades comerciales' })
+    expect(within(dashboard).getByText('1 pendiente')).toBeInTheDocument()
+    fireEvent.click(within(dashboard).getByRole('button', { name: /Confirmar pedido/ }))
+    expect(await screen.findByRole('heading', { name: 'Pedidos recibidos' })).toBeInTheDocument()
+    expect(document.getElementById('order-order-1')).toHaveTextContent('PED-000001')
+  })
+
   it('filters a larger catalog while keeping the selected products', async () => {
     const products = [companyA.products[0], ...Array.from({ length: 13 }, (_, index) => ({ ...companyA.products[0], id: `product-${index + 2}`, name: `Producto ${index + 2}`, description: 'Repostería artesanal', sku: `P-${index + 2}`, category: 'Repostería' }))]
     mockJson({ ...companyA, products })
