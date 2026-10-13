@@ -1,10 +1,12 @@
+from decimal import Decimal
+
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
 from apps.catalog.models import Product
 
-from .models import QuoteRequest, QuoteRequestItem
+from .models import Quote, QuoteItem, QuoteRequest, QuoteRequestItem
 
 
 class PublicQuoteItemSerializer(serializers.Serializer):
@@ -69,11 +71,16 @@ class PublicQuoteRequestSerializer(serializers.ModelSerializer):
 class PrivateQuoteItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuoteRequestItem
-        fields = ("product", "product_name", "product_sku", "quantity")
+        fields = ("id", "product", "product_name", "product_sku", "quantity")
 
 
 class PrivateQuoteRequestSerializer(serializers.ModelSerializer):
     items = PrivateQuoteItemSerializer(many=True, read_only=True)
+    quote = serializers.SerializerMethodField()
+
+    def get_quote(self, obj):
+        quote = getattr(obj, "quote", None)
+        return QuoteSerializer(quote).data if quote else None
 
     class Meta:
         model = QuoteRequest
@@ -86,6 +93,7 @@ class PrivateQuoteRequestSerializer(serializers.ModelSerializer):
             "message",
             "status",
             "items",
+            "quote",
             "consent_at",
             "created_at",
             "updated_at",
@@ -98,7 +106,52 @@ class PrivateQuoteRequestSerializer(serializers.ModelSerializer):
             "phone",
             "message",
             "items",
+            "quote",
             "consent_at",
             "created_at",
             "updated_at",
         )
+
+
+class QuoteItemSerializer(serializers.ModelSerializer):
+    line_total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuoteItem
+        fields = ("request_item", "product_name", "product_sku", "quantity", "unit_price", "line_total")
+
+    def get_line_total(self, obj):
+        return str(obj.unit_price * obj.quantity)
+
+
+class QuoteSerializer(serializers.ModelSerializer):
+    items = QuoteItemSerializer(many=True, read_only=True)
+    subtotal = serializers.DecimalField(max_digits=22, decimal_places=2, read_only=True)
+    tax_amount = serializers.DecimalField(max_digits=22, decimal_places=2, read_only=True)
+    total = serializers.DecimalField(max_digits=22, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = Quote
+        fields = ("id", "status", "valid_until", "tax_rate", "notes", "issued_at", "items", "subtotal", "tax_amount", "total", "created_at")
+
+
+class QuoteDraftItemSerializer(serializers.Serializer):
+    request_item = serializers.IntegerField(min_value=1)
+    unit_price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"))
+
+
+class QuoteDraftSerializer(serializers.Serializer):
+    valid_until = serializers.DateField()
+    tax_rate = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100"), default=Decimal("19.00"))
+    notes = serializers.CharField(max_length=1500, required=False, allow_blank=True)
+    items = QuoteDraftItemSerializer(many=True, allow_empty=False)
+
+    def validate(self, attrs):
+        if attrs["valid_until"] < timezone.localdate():
+            raise serializers.ValidationError({"valid_until": "La vigencia no puede haber terminado."})
+        requested = list(self.context["quote_request"].items.all())
+        ids = [item["request_item"] for item in attrs["items"]]
+        if len(ids) != len(set(ids)) or set(ids) != {item.id for item in requested}:
+            raise serializers.ValidationError({"items": "Incluye cada producto solicitado exactamente una vez."})
+        attrs["source_items"] = {item.id: item for item in requested}
+        return attrs

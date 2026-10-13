@@ -61,8 +61,22 @@ type QuoteInquiry = {
   phone: string
   message: string
   status: 'NEW' | 'CONTACTED' | 'CLOSED'
-  items: { product: string; product_name: string; product_sku: string; quantity: number }[]
+  items: { id: number; product: string; product_name: string; product_sku: string; quantity: number }[]
+  quote: FormalQuote | null
   created_at: string
+}
+
+type FormalQuote = {
+  id: string
+  status: 'DRAFT' | 'ISSUED'
+  valid_until: string
+  tax_rate: string
+  notes: string
+  issued_at: string | null
+  subtotal: string
+  tax_amount: string
+  total: string
+  items: { request_item: number; product_name: string; product_sku: string; quantity: number; unit_price: string; line_total: string }[]
 }
 
 type Territory = { id: string; name: string; description: string; region: string; localities: string[]; prospect_goal: number; is_active: boolean; prospect_count: number; reviewed_count: number; coverage_percentage: number }
@@ -408,6 +422,79 @@ function CatalogImportPanel({ csrfToken, onConfirmed }: { csrfToken: string; onC
   )
 }
 
+function QuotePanel({ inquiry, products, canEdit, csrfToken, onSaved, onError }: {
+  inquiry: QuoteInquiry
+  products: Product[]
+  canEdit: boolean
+  csrfToken: string
+  onSaved: (quote: FormalQuote) => void
+  onError: (message: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const quote = inquiry.quote
+  const today = new Date().toISOString().slice(0, 10)
+  const defaultValidity = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+  const endpoint = `/api/inquiries/${inquiry.id}/quote/`
+  const currency = (value: string) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(Number(value))
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    setBusy(true)
+    onError('')
+    const data = new FormData(event.currentTarget)
+    const payload = {
+      valid_until: data.get('valid_until'),
+      tax_rate: data.get('tax_rate'),
+      notes: data.get('notes'),
+      items: inquiry.items.map((item) => ({ request_item: item.id, unit_price: data.get(`price-${item.id}`) })),
+    }
+    try {
+      const response = await fetch(endpoint, {
+        method: quote ? 'PATCH' : 'POST', credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify(payload),
+      })
+      if (!response.ok) throw new Error('Revisa la vigencia, los precios y los productos de la cotización.')
+      onSaved(await response.json() as FormalQuote)
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'No fue posible guardar la cotización.')
+    } finally { setBusy(false) }
+  }
+
+  async function issue() {
+    if (busy || !quote) return
+    setBusy(true)
+    onError('')
+    try {
+      const response = await fetch(endpoint + 'issue/', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'X-CSRFToken': csrfToken },
+      })
+      if (!response.ok) throw new Error('No fue posible emitir la cotización. Revisa su vigencia.')
+      onSaved(await response.json() as FormalQuote)
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'No fue posible emitir la cotización.')
+    } finally { setBusy(false) }
+  }
+
+  return <section className="quote-panel" aria-label={`Cotización de ${inquiry.full_name}`}>
+    <h3>{quote ? `Cotización ${quote.id.slice(0, 8).toUpperCase()} · ${quote.status === 'ISSUED' ? 'Emitida' : 'Borrador'}` : 'Preparar cotización'}</h3>
+    {quote && <div className="quote-totals"><span>Subtotal: {currency(quote.subtotal)}</span><span>Impuesto ({quote.tax_rate}%): {currency(quote.tax_amount)}</span><strong>Total: {currency(quote.total)}</strong><small>Válida hasta {quote.valid_until}</small></div>}
+    {quote?.status === 'ISSUED' && <p>Cotización emitida. <a href={endpoint + 'print/'} target="_blank" rel="noopener noreferrer">Abrir documento para imprimir o guardar como PDF</a>. Compártelo con el cliente por el canal acordado.</p>}
+    {canEdit && quote?.status !== 'ISSUED' && <form key={quote?.id ?? inquiry.id} onSubmit={save} className="quote-editor">
+      {inquiry.items.map((item) => <label key={item.id}>{item.product_name} × {item.quantity} · Precio unitario (CLP)
+        <input name={`price-${item.id}`} type="number" min="0" step="0.01" required defaultValue={quote?.items.find((line) => line.request_item === item.id)?.unit_price ?? products.find((product) => product.id === item.product)?.price ?? ''} />
+      </label>)}
+      <label>Válida hasta<input name="valid_until" type="date" min={today} required defaultValue={quote?.valid_until ?? defaultValidity} /></label>
+      <label>Impuesto (%)<input name="tax_rate" type="number" min="0" max="100" step="0.01" required defaultValue={quote?.tax_rate ?? '19.00'} /></label>
+      <label>Condiciones<textarea name="notes" maxLength={1500} defaultValue={quote?.notes ?? ''} /></label>
+      <button type="submit" disabled={busy || !csrfToken}>{busy ? 'Guardando…' : quote ? 'Actualizar borrador' : 'Crear borrador'}</button>
+      {quote && <button type="button" onClick={issue} disabled={busy || !csrfToken}>Emitir cotización</button>}
+    </form>}
+  </section>
+}
+
 function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
   const [categories, setCategories] = useState<Category[]>([])
@@ -734,7 +821,7 @@ function PrivateApp() {
           {opportunities.length === 0 ? <div className="empty-catalog"><strong>Aún no hay oportunidades.</strong><p>Configura industrias o palabras clave en el catálogo, registra prospectos y ejecuta el cálculo.</p></div> : <div className="opportunity-grid">{opportunities.filter((item) => opportunityStatus === 'ALL' || item.status === opportunityStatus).map((opportunity) => <article key={opportunity.id}><header><div className={`score-badge score-${opportunity.score >= 75 ? 'high' : opportunity.score >= 50 ? 'medium' : 'low'}`}><strong>{opportunity.score}</strong><small>/100</small></div><div><span>{opportunity.prospect_name}</span><h3>{opportunity.product_name}</h3><small>{opportunity.prospect_industry || 'Sin rubro'} · {opportunity.territory_name || 'Sin territorio'}</small></div></header><p>{opportunity.explanation}</p><div className="score-breakdown">{Object.entries(opportunity.score_breakdown).filter(([, value]) => value > 0).map(([criterion, value]) => <span key={criterion}>{({ industry: 'Rubro', keywords: 'Señales', territory: 'Territorio', contact: 'Contacto', data_quality: 'Calidad', priority: 'Prioridad' } as Record<string, string>)[criterion] ?? criterion} +{value}</span>)}</div><footer><small>Fórmula {opportunity.score_version}</small>{canEdit ? <select aria-label={`Revisar ${opportunity.prospect_name} y ${opportunity.product_name}`} value={opportunity.status} onChange={(event) => reviewOpportunity(opportunity, event.target.value as Opportunity['status'])}><option value="PENDING">Pendiente</option><option value="ACCEPTED">Aceptar</option><option value="POSTPONED">Postergar</option><option value="DISCARDED">Descartar</option></select> : <strong>{opportunity.status}</strong>}</footer>{opportunity.review_reason && <p className="review-reason">Motivo: {opportunity.review_reason}</p>}</article>)}</div>}
         </section>}
 
-        {activeSection === 'inquiries' && <section className="catalog-list inquiry-list"><div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2></div><strong>{inquiries.length}</strong></div>{inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <article key={inquiry.id}><div className="inquiry-title"><div><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></div>{canEdit ? <select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => updateInquiryStatus(inquiry, event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select> : <span>{inquiry.status}</span>}</div><p>{inquiry.message || 'Sin mensaje adicional.'}</p><div className="inquiry-contact"><span>{inquiry.email || inquiry.phone}</span><time>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time></div><ul>{inquiry.items.map((item) => <li key={item.product}>{item.product_name} × {item.quantity}</li>)}</ul></article>)}</div>}</section>}
+        {activeSection === 'inquiries' && <section className="catalog-list inquiry-list"><div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2></div><strong>{inquiries.length}</strong></div>{inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <article key={inquiry.id}><div className="inquiry-title"><div><strong>{inquiry.full_name}</strong><small>{inquiry.company_name || 'Sin empresa'}</small></div>{canEdit ? <select aria-label={`Estado de ${inquiry.full_name}`} value={inquiry.status} onChange={(event) => updateInquiryStatus(inquiry, event.target.value as QuoteInquiry['status'])}><option value="NEW">Nueva</option><option value="CONTACTED">Contactada</option><option value="CLOSED">Cerrada</option></select> : <span>{inquiry.status}</span>}</div><p>{inquiry.message || 'Sin mensaje adicional.'}</p><div className="inquiry-contact"><span>{inquiry.email || inquiry.phone}</span><time>{new Date(inquiry.created_at).toLocaleDateString('es-CL')}</time></div><ul>{inquiry.items.map((item) => <li key={item.product}>{item.product_name} × {item.quantity}</li>)}</ul><QuotePanel inquiry={inquiry} products={products} canEdit={canEdit} csrfToken={csrfToken} onSaved={(quote) => setInquiries((current) => current.map((item) => item.id === inquiry.id ? { ...item, quote } : item))} onError={setCatalogError} /></article>)}</div>}</section>}
       </div>
     </main>
   )

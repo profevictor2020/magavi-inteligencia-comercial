@@ -364,3 +364,11 @@ h1, h2, h3, p { margin-top: 0; }
   .industry-selector > div { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 620px) { .summary-grid, .territory-grid, .territory-form, .matching-rules-form, .opportunity-grid, .catalog-subnav, .product-create-form, .category-create-form, .category-grid, .matching-product-grid, .matching-module .matching-rules-form, .industry-selector > div { grid-template-columns: 1fr; } .territory-form .wide-field, .matching-rules-form > div, .product-create-form > div, .product-create-form .wide-field, .category-create-form > div { grid-column: auto; } .industry-selector { grid-column: 1; } .opportunity-heading, .catalog-workspace-intro { align-items: stretch; flex-direction: column; } }
+.quote-panel { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #dce7e4; }
+.quote-panel h3 { margin: 0 0 .75rem; font-size: 1rem; }
+.quote-totals { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; margin-bottom: .75rem; }
+.quote-totals strong { color: #145c5a; }
+.quote-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; }
+.quote-editor label { display: grid; gap: .3rem; font-size: .85rem; }
+.quote-editor input, .quote-editor textarea { width: 100%; box-sizing: border-box; }
+.quote-editor button { align-self: end; }

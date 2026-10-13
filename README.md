@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía cotizaciones formales, CRM, ventas ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, cotizaciones emitibles desde esas solicitudes, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía CRM, ventas ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -143,6 +143,9 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/inquiries/public/` | Público limitado | Registra una solicitud para productos publicados del tenant actual |
 | `/api/inquiries/` | Privado | Lista solicitudes pertenecientes al tenant actual |
 | `/api/inquiries/<uuid>/` | Privado | Consulta una solicitud; OWNER/ADMIN puede cambiar su estado |
+| `/api/inquiries/<uuid>/quote/` | Privado | Consulta la cotización; OWNER/ADMIN crea o actualiza su borrador |
+| `/api/inquiries/<uuid>/quote/issue/` | OWNER/ADMIN + CSRF | Emite y bloquea una cotización vigente |
+| `/api/inquiries/<uuid>/quote/print/` | Privado | Documento imprimible de una cotización emitida |
 | `/api/prospects/territories/` | Privado | Lista territorios y cobertura; OWNER/ADMIN puede crear |
 | `/api/prospects/territories/<uuid>/` | Privado | Consulta y administra un territorio del tenant actual |
 | `/api/prospects/` | Privado | Lista y filtra prospectos; OWNER/ADMIN puede crear |
@@ -169,7 +172,9 @@ La carga masiva usa la plantilla CSV descargable con las columnas `sku,nombre,ca
 
 ### Solicitudes comerciales
 
-La landing permite seleccionar productos publicados, indicar cantidades y enviar datos de contacto con consentimiento explícito. El backend acepta únicamente productos disponibles del tenant resuelto por hostname, conserva una copia del nombre y SKU solicitados, aplica un límite de solicitudes y utiliza un campo señuelo contra envíos automatizados. El área privada lista exclusivamente las solicitudes del tenant actual; `OWNER` y `ADMIN` pueden marcarlas como nuevas, contactadas o cerradas. Esta función captura intención comercial, pero todavía no calcula precios finales ni genera una cotización formal.
+La landing permite seleccionar productos publicados, indicar cantidades y enviar datos de contacto con consentimiento explícito. El backend acepta únicamente productos disponibles del tenant resuelto por hostname, conserva una copia del nombre y SKU solicitados, aplica un límite de solicitudes y utiliza un campo señuelo contra envíos automatizados. El área privada lista exclusivamente las solicitudes del tenant actual; `OWNER` y `ADMIN` pueden marcarlas como nuevas, contactadas o cerradas.
+
+`OWNER` y `ADMIN` pueden preparar una cotización por solicitud, fijando precio unitario, tasa de impuesto, vigencia y condiciones. El servidor calcula subtotal, impuesto y total en CLP y conserva una copia de los productos y cantidades solicitados. El borrador puede actualizarse; al emitirlo queda inmutable y disponible como documento imprimible o PDF mediante el navegador. `STAFF` y `VIEWER` pueden consultarlo, pero no modificarlo. La emisión no envía correos ni constituye aceptación del cliente; el equipo comercial comparte el documento por el canal acordado. La tasa de impuesto debe revisarse según los productos y el tratamiento tributario aplicable.
 
 ### Prospectos manuales
 

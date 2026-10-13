@@ -3,7 +3,10 @@ FROM node:22-alpine AS frontend-builder
 
 WORKDIR /build/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then \
+      NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca npm ci --no-audit --no-fund --strict-ssl=true; \
+    else npm ci --no-audit --no-fund --strict-ssl=true; fi
 COPY frontend/ ./
 RUN npm run build
 
@@ -19,7 +22,10 @@ WORKDIR /app
 RUN addgroup --system magavi && adduser --system --ingroup magavi magavi
 
 COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir --requirement /app/backend/requirements.txt
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then \
+      PIP_CERT=/run/secrets/proxy_ca pip install --no-cache-dir --requirement /app/backend/requirements.txt; \
+    else pip install --no-cache-dir --requirement /app/backend/requirements.txt; fi
 
 COPY backend/ /app/backend/
 COPY --from=frontend-builder /build/frontend/dist/ /app/backend/frontend_dist/

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
@@ -144,6 +144,28 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('button', { name: 'Calcular oportunidades' })).toBeInTheDocument()
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Solicitudes/ }))
     expect(screen.getByRole('heading', { name: 'Contactos y cotizaciones', level: 2 })).toBeInTheDocument()
+  })
+
+  it('creates and issues a quote from an existing request', async () => {
+    window.history.replaceState({}, '', '/app/')
+    const quote = { id: 'quote-12345678', status: 'DRAFT', valid_until: '2099-01-01', tax_rate: '19.00', notes: '', issued_at: null, subtotal: '3000.00', tax_amount: '570.00', total: '3570.00', items: [{ request_item: 1, product_name: 'Café', product_sku: 'CAFE-1', quantity: 3, unit_price: '1000.00', line_total: '3000.00' }] }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+        : url.includes('/quote/issue/') ? { ...quote, status: 'ISSUED' }
+        : url.includes('/quote/') ? quote
+        : url.includes('/inquiries/') ? [{ id: 'request-1', full_name: 'Cliente A', company_name: 'Negocio A', email: 'a@example.test', phone: '', message: '', status: 'NEW', quote: null, created_at: '2026-01-01T00:00:00Z', items: [{ id: 1, product: 'product-a', product_name: 'Café', product_sku: 'CAFE-1', quantity: 3 }] }]
+        : []
+      return Promise.resolve({ ok: true, json: async () => payload, requestInit: init })
+    }))
+    render(<App />)
+    fireEvent.click(within(await screen.findByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Solicitudes/ }))
+    fireEvent.change(screen.getByLabelText(/Café × 3 · Precio unitario/), { target: { value: '1000.00' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Crear borrador' }).closest('form') as HTMLFormElement)
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/inquiries/request-1/quote/', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"unit_price":"1000.00"') })))
+    fireEvent.click(await screen.findByRole('button', { name: 'Emitir cotización' }))
+    expect(await screen.findByRole('link', { name: 'Abrir documento para imprimir o guardar como PDF' })).toHaveAttribute('href', '/api/inquiries/request-1/quote/print/')
   })
 
   it('previews and confirms a CSV catalog import', async () => {
