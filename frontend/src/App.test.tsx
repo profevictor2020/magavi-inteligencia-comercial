@@ -230,7 +230,7 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Crear agrupación' })).toBeInTheDocument()
     fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Importación/ }))
     expect(screen.getByRole('heading', { name: 'Carga masiva de productos' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Importar productos desde CSV' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Descargar plantilla CSV/ })).toHaveAttribute('href', '/api/catalog/import/template/')
     fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Reglas comerciales/ }))
     expect(screen.getByRole('heading', { name: 'Segmentación para oportunidades' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Restaurantes, restobares y cafeterías' })).toBeInTheDocument()
