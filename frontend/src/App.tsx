@@ -334,6 +334,7 @@ function PublicLanding() {
   const filteredProducts = tenant.products.filter((product) => (!category || product.category === category) && (!normalizedSearch || normalizeProductSearch(`${product.name} ${product.sku} ${product.description} ${product.category}`).includes(normalizedSearch)))
   const visibleProducts = filteredProducts.slice(0, visibleCount)
   const selectedItems = tenant.products.filter((product) => selectedQuantities[product.id]).map((product) => ({ product, quantity: selectedQuantities[product.id] }))
+  const showcaseProducts = tenant.products.filter((product) => product.image_path).slice(0, 3)
 
   function addProduct(productId: string) {
     setSelectedQuantities((current) => ({ ...current, [productId]: current[productId] || 1 }))
@@ -371,18 +372,22 @@ function PublicLanding() {
         </nav>
       </header>
 
-      <section className="landing-hero page-width" id="empresa">
+      <div className="landing-hero-wrap"><section className="landing-hero page-width" id="empresa">
         <div className="landing-hero-copy">
           <span className="eyebrow">{tenant.is_demo ? 'SITIO DEMOSTRATIVO' : tenant.name.toLocaleUpperCase('es-CL')}</span>
           <h1>{tenant.headline}</h1>
           {tenant.description && <p>{tenant.description}</p>}
-          <div className="landing-hero-actions"><a className="landing-main-action" href="#productos">Explorar productos <span aria-hidden="true">→</span></a><a className="landing-text-action" href={tenant.products.length ? '#mi-seleccion' : '#contacto'}>{tenant.products.length ? 'Ver mi selección' : 'Contáctanos'}</a></div>
+          <div className="landing-hero-actions"><a className="landing-main-action" href="#productos">Ver productos <span aria-hidden="true">→</span></a><a className="landing-text-action" href={tenant.products.length ? '#mi-seleccion' : '#contacto'}>{tenant.products.length ? 'Mi selección' : 'Contáctanos'}</a></div>
+          {tenant.products.length > 0 && <p className="landing-hero-count">{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'} para explorar</p>}
         </div>
-        <div className="landing-brand-panel"><div className="landing-brand-image"><img src={tenant.logo_path} alt={`Logo de ${tenant.name}`} /></div><span>Explora los productos de {tenant.name}</span></div>
-      </section>
+        <div className={`landing-showcase ${showcaseProducts.length === 0 ? 'is-logo-only' : ''}`} aria-label={showcaseProducts.length ? 'Productos destacados del catálogo' : `Identidad de ${tenant.name}`}>
+          {showcaseProducts.length > 0 ? <div className="landing-showcase-images">{showcaseProducts.map((product) => <div key={product.id} className="landing-showcase-image"><img src={product.image_path!} alt={product.name} /><span>{product.name}</span></div>)}</div> : <div className="landing-showcase-logo"><img src={tenant.logo_path} alt={`Logo de ${tenant.name}`} /></div>}
+          <div className="landing-showcase-caption"><span>CATÁLOGO DE {tenant.name.toLocaleUpperCase('es-CL')}</span><strong>Elige lo que necesitas. Nosotros te ayudamos.</strong></div>
+        </div>
+      </section></div>
 
       <section className="landing-offers page-width" id="productos" aria-labelledby="offerings-title">
-        <div className="landing-section-heading"><span className="eyebrow">CATÁLOGO</span><h2 id="offerings-title">Productos</h2><p>Explora nuestra selección y cuéntanos qué necesitas.</p></div>
+        <div className="landing-section-heading"><div><span className="eyebrow">CATÁLOGO</span><h2 id="offerings-title">Productos</h2></div><p>Busca, compara y agrega productos a tu selección para cotizar o comprar.</p></div>
         {tenant.products.length === 0 && <p className="landing-empty-offer">Estamos preparando nuestro catálogo. Escríbenos y te ayudaremos a encontrar lo que buscas.</p>}
         {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'} disponible{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-tools"><label>Buscar productos<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(12) }} placeholder="Nombre o código del producto" /></label><label>Categoría<select value={category} onChange={(event) => { setCategory(event.target.value); setVisibleCount(12) }}><option value="">Todas las categorías</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div><div className="landing-shop-layout"><div><p className="landing-result-count" role="status">{filteredProducts.length} resultado{filteredProducts.length === 1 ? '' : 's'}</p>{filteredProducts.length === 0 ? <div className="landing-no-results"><p>No encontramos productos con esos filtros.</p><button type="button" onClick={() => { setSearch(''); setCategory(''); setVisibleCount(12) }}>Limpiar búsqueda</button></div> : <><div className="landing-product-grid">{visibleProducts.map((product) => <article key={product.id}><div className="landing-product-image">{product.image_path ? <img src={product.image_path} alt={product.name} loading="lazy" /> : <span>Imagen próximamente</span>}</div><div className="landing-product-detail"><span className="landing-product-category">{product.category}</span><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="landing-product-footer">{product.format && <span>{product.format}</span>}<strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div><button type="button" className="landing-add-product" disabled={Boolean(selectedQuantities[product.id])} onClick={() => addProduct(product.id)}>{selectedQuantities[product.id] ? 'Agregado a mi selección ✓' : 'Agregar a mi selección'}</button></div></article>)}</div>{visibleCount < filteredProducts.length && <button type="button" className="landing-show-more" onClick={() => setVisibleCount((count) => count + 12)}>Mostrar más productos</button>}</>}</div><SelectionPanel items={selectedItems} onQuantityChange={(productId, quantity) => setSelectedQuantities((current) => ({ ...current, [productId]: quantity }))} onRemove={removeProduct} onQuote={() => startCheckout('quote')} onPurchase={() => startCheckout('purchase')} /></div></div>}
       </section>
