@@ -8,6 +8,7 @@ from .views import (
     CategoryListCreateView,
     IndustrySegmentListView,
     ProductDetailView,
+    ProductImageView,
     ProductListCreateView,
 )
 
@@ -17,6 +18,7 @@ urlpatterns = [
     path("categories/<uuid:pk>/", CategoryDetailView.as_view(), name="catalog-category-detail"),
     path("products/", ProductListCreateView.as_view(), name="catalog-product-list"),
     path("products/<uuid:pk>/", ProductDetailView.as_view(), name="catalog-product-detail"),
+    path("products/<uuid:pk>/image/", ProductImageView.as_view(), name="catalog-product-image"),
     path("import/template/", CatalogTemplateView.as_view(), name="catalog-import-template"),
     path("import/preview/", CatalogImportPreviewView.as_view(), name="catalog-import-preview"),
     path("import/confirm/", CatalogImportConfirmView.as_view(), name="catalog-import-confirm"),

@@ -61,6 +61,7 @@ class Product(models.Model):
     )
     is_available = models.BooleanField(default=True)
     is_published = models.BooleanField(default=False)
+    image_updated_at = models.DateTimeField(null=True, blank=True, editable=False)
     target_industries = models.JSONField(default=list, blank=True)
     match_keywords = models.JSONField(default=list, blank=True)
     commercial_priority = models.CharField(
@@ -84,3 +85,22 @@ class Product(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.sku})"
+
+    @property
+    def image_path(self) -> str | None:
+        if self.image_updated_at is None:
+            return None
+        version = int(self.image_updated_at.timestamp() * 1_000_000)
+        return f"/api/catalog/products/{self.id}/image/?v={version}"
+
+    @property
+    def public_image_path(self) -> str | None:
+        if self.image_updated_at is None:
+            return None
+        version = int(self.image_updated_at.timestamp() * 1_000_000)
+        return f"/api/public/products/{self.id}/image/?v={version}"
+
+
+class ProductImage(models.Model):
+    product = models.OneToOneField(Product, on_delete=models.CASCADE, related_name="uploaded_image")
+    data = models.BinaryField()

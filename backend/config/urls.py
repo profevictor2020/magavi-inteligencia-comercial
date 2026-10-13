@@ -2,10 +2,13 @@ from django.contrib import admin
 from django.urls import include, path, re_path
 from django.views.generic import TemplateView
 
+from apps.catalog.views import PublicProductImageView
+
 from .views import PrivateAppView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("api/public/products/<uuid:product_id>/image/", PublicProductImageView.as_view(), name="public-product-image"),
     path("api/", include("apps.health.urls")),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/catalog/", include("apps.catalog.urls")),

@@ -1,12 +1,14 @@
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from PIL import Image
 from rest_framework.test import APIClient
 
-from apps.catalog.models import Category, IndustrySegment, Product
+from apps.catalog.models import Category, IndustrySegment, Product, ProductImage
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
 
@@ -46,6 +48,71 @@ def authenticated_client(user):
 def catalog_csv(*rows):
     header = "sku,nombre,categoria,descripcion,formato,precio,disponible,publicar\n"
     return SimpleUploadedFile("catalogo.csv", (header + "\n".join(rows) + "\n").encode(), content_type="text/csv")
+
+
+def product_png():
+    content = BytesIO()
+    Image.new("RGB", (80, 60), "#a88b69").save(content, format="PNG")
+    return SimpleUploadedFile("cafe.png", content.getvalue(), content_type="image/png")
+
+
+@pytest.mark.django_db
+def test_product_image_upload_and_publication_are_tenant_scoped(catalog_context):
+    tenant_a, _, owner, viewer, category_a, _ = catalog_context
+    product = Product.objects.create(tenant=tenant_a, category=category_a, name="Café", sku="CAFE-1")
+    upload_url = reverse("catalog-product-image", args=[product.id])
+    public_url = reverse("public-product-image", args=[product.id])
+    owner_client = authenticated_client(owner)
+
+    assert authenticated_client(viewer).post(upload_url, {"image": product_png()}, format="multipart", HTTP_HOST="catalog-a.localhost").status_code == 403
+    assert owner_client.post(upload_url, {"image": product_png()}, format="multipart", HTTP_HOST="catalog-b.localhost").status_code == 403
+    assert APIClient().get(public_url, HTTP_HOST="catalog-a.localhost").status_code == 404
+
+    uploaded = owner_client.post(upload_url, {"image": product_png()}, format="multipart", HTTP_HOST="catalog-a.localhost")
+    assert uploaded.status_code == 200
+    assert uploaded.json()["image_path"].startswith(upload_url)
+    assert ProductImage.objects.filter(product=product).exists()
+    assert owner_client.get(upload_url, HTTP_HOST="catalog-a.localhost")["Content-Type"] == "image/webp"
+    assert APIClient().get(public_url, HTTP_HOST="catalog-a.localhost").status_code == 404
+
+    product.is_published = True
+    product.save(update_fields=["is_published"])
+    landing = APIClient().get(reverse("public-landing"), HTTP_HOST="catalog-a.localhost")
+    assert landing.json()["products"][0]["image_path"].startswith(public_url)
+    public = APIClient().get(public_url, HTTP_HOST="catalog-a.localhost")
+    assert public.status_code == 200
+    assert public["Content-Type"] == "image/webp"
+    assert APIClient().get(public_url, HTTP_HOST="catalog-b.localhost").status_code == 404
+
+    product.is_available = False
+    product.save(update_fields=["is_available"])
+    assert APIClient().get(public_url, HTTP_HOST="catalog-a.localhost").status_code == 404
+    product.is_available = True
+    product.save(update_fields=["is_available"])
+    category_a.is_active = False
+    category_a.save(update_fields=["is_active"])
+    assert APIClient().get(public_url, HTTP_HOST="catalog-a.localhost").status_code == 404
+    category_a.is_active = True
+    category_a.save(update_fields=["is_active"])
+
+    removed = owner_client.delete(upload_url, HTTP_HOST="catalog-a.localhost")
+    assert removed.status_code == 200
+    assert removed.json()["image_path"] is None
+    assert APIClient().get(public_url, HTTP_HOST="catalog-a.localhost").status_code == 404
+
+
+@pytest.mark.django_db
+def test_product_image_rejects_invalid_upload(catalog_context):
+    tenant_a, _, owner, _, category_a, _ = catalog_context
+    product = Product.objects.create(tenant=tenant_a, category=category_a, name="Café", sku="CAFE-1")
+    response = authenticated_client(owner).post(
+        reverse("catalog-product-image", args=[product.id]),
+        {"image": SimpleUploadedFile("fake.png", b"not-an-image", content_type="image/png")},
+        format="multipart",
+        HTTP_HOST="catalog-a.localhost",
+    )
+    assert response.status_code == 400
+    assert not ProductImage.objects.filter(product=product).exists()
 
 
 @pytest.mark.django_db

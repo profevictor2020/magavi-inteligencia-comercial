@@ -1,6 +1,5 @@
 import { type CSSProperties, type FormEvent, useEffect, useState } from 'react'
 
-type Offering = { name: string; description: string }
 type LandingData = {
   name: string
   description: string
@@ -8,7 +7,6 @@ type LandingData = {
   logo_path: string
   theme: { primary: string; secondary: string }
   contact: { email: string; phone: string }
-  featured_offerings: Offering[]
   products: PublicProduct[]
   is_demo: boolean
 }
@@ -21,12 +19,14 @@ type PublicProduct = {
   format: string
   price: string | null
   category: string
+  image_path: string | null
 }
 
 type Category = { id: string; name: string; description: string; is_active: boolean }
 type Product = PublicProduct & {
   category: string
   category_name: string
+  category_is_active: boolean
   is_available: boolean
   is_published: boolean
   target_industries: string[]
@@ -291,14 +291,13 @@ function PublicLanding() {
           {tenant.description && <p>{tenant.description}</p>}
           <div className="landing-hero-actions"><a className="landing-main-action" href="#productos">Explorar productos <span aria-hidden="true">→</span></a><a className="landing-text-action" href={tenant.products.length ? '#cotizar' : '#contacto'}>{tenant.products.length ? 'Solicitar cotización' : 'Contáctanos'}</a></div>
         </div>
-        <div className="landing-brand-panel"><div className="landing-brand-image"><img src={tenant.logo_path} alt={`Logo de ${tenant.name}`} /></div><span>Conoce lo que podemos ofrecerte</span></div>
+        <div className="landing-brand-panel"><div className="landing-brand-image"><img src={tenant.logo_path} alt={`Logo de ${tenant.name}`} /></div><span>Explora los productos de {tenant.name}</span></div>
       </section>
 
       <section className="landing-offers page-width" id="productos" aria-labelledby="offerings-title">
-        <div className="landing-section-heading"><span className="eyebrow">NUESTRA OFERTA</span><h2 id="offerings-title">Productos y servicios</h2><p>Explora nuestra selección y cuéntanos qué necesitas.</p></div>
-        {tenant.featured_offerings.length > 0 && <div className="landing-offering-grid">{tenant.featured_offerings.map((offering, index) => <article key={`${offering.name}-${index}`}><span className="landing-offering-number">{String(index + 1).padStart(2, '0')}</span><h3>{offering.name}</h3><p>{offering.description}</p></article>)}</div>}
-        {tenant.featured_offerings.length === 0 && tenant.products.length === 0 && <p className="landing-empty-offer">Estamos preparando nuestro catálogo. Escríbenos y te ayudaremos a encontrar lo que buscas.</p>}
-        {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><h3>Catálogo disponible</h3><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-grid">{tenant.products.map((product) => <article key={product.id}><span className="landing-product-category">{product.category}</span><h4>{product.name}</h4><p>{product.description || product.format}</p><div><span>{product.format}</span><strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div></article>)}</div></div>}
+        <div className="landing-section-heading"><span className="eyebrow">CATÁLOGO</span><h2 id="offerings-title">Productos</h2><p>Explora nuestra selección y cuéntanos qué necesitas.</p></div>
+        {tenant.products.length === 0 && <p className="landing-empty-offer">Estamos preparando nuestro catálogo. Escríbenos y te ayudaremos a encontrar lo que buscas.</p>}
+        {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'} disponible{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-grid">{tenant.products.map((product) => <article key={product.id}><div className="landing-product-image">{product.image_path ? <img src={product.image_path} alt={product.name} loading="lazy" /> : <span>Imagen próximamente</span>}</div><div className="landing-product-detail"><span className="landing-product-category">{product.category}</span><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="landing-product-footer">{product.format && <span>{product.format}</span>}<strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div></div></article>)}</div></div>}
       </section>
 
       <section className="landing-contact" id="contacto"><div className="page-width"><div className="landing-contact-heading"><div><span className="eyebrow">HABLEMOS</span><h2>Conversemos sobre lo que necesitas.</h2></div><div className="landing-contact-links">{tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}{tenant.contact.phone && <a href={`tel:${tenant.contact.phone}`}>{tenant.contact.phone}</a>}</div></div>{tenant.products.length > 0 && <div id="cotizar"><PublicQuoteForm products={tenant.products} /></div>}</div></section>
@@ -645,6 +644,51 @@ function BrandSettingsPanel({ tenant, csrfToken, onSaved }: { tenant: TenantCont
   )
 }
 
+function MarketingProductCard({ product, canEdit, csrfToken, onUpdated, onTogglePublished }: {
+  product: Product
+  canEdit: boolean
+  csrfToken: string
+  onUpdated: (product: Product) => void
+  onTogglePublished: (product: Product) => Promise<void>
+}) {
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const endpoint = `/api/catalog/products/${product.id}/image/`
+
+  async function updateImage(method: 'POST' | 'DELETE') {
+    if (busy) return
+    if (method === 'POST' && (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 2_000_000)) {
+      setError('Selecciona una imagen PNG, JPEG o WebP de hasta 2 MB.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    setMessage('')
+    try {
+      const body = new FormData()
+      if (method === 'POST' && file) body.append('image', file)
+      const response = await fetch(endpoint, { method, credentials: 'same-origin', headers: { ...jsonHeaders, 'X-CSRFToken': csrfToken }, ...(method === 'POST' ? { body } : {}) })
+      if (!response.ok) throw new Error('No fue posible guardar la imagen. Revisa el formato y tamaño e inténtalo de nuevo.')
+      onUpdated(await response.json() as Product)
+      setFile(null)
+      setMessage(method === 'POST' ? 'Imagen actualizada.' : 'Imagen eliminada.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No fue posible guardar la imagen.')
+    } finally { setBusy(false) }
+  }
+
+  return <article className="marketing-product-card">
+    <div className="marketing-product-image">{product.image_path ? <img src={product.image_path} alt={`Imagen de ${product.name}`} /> : <span>Sin imagen</span>}</div>
+    <div className="marketing-product-body"><span className="landing-product-category">{product.category_name}</span><h3>{product.name}</h3><p>{product.sku} · {product.price ? formatClp(product.price) : 'Por cotizar'}</p>
+      <span className={`marketing-publication ${product.is_published && product.is_available && product.category_is_active ? 'is-published' : ''}`}>{!product.is_published ? 'Oculto en la landing' : product.is_available && product.category_is_active ? 'Publicado en la landing' : 'Publicado, pero no disponible'}</span>
+      {canEdit && <div className="marketing-product-actions"><label>Imagen del producto<input key={product.image_path ?? 'empty'} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { setFile(event.target.files?.[0] ?? null); setMessage(''); setError('') }} /><small>PNG, JPEG o WebP · hasta 2 MB</small></label><div><button type="button" onClick={() => updateImage('POST')} disabled={busy || !file || !csrfToken}>{busy ? 'Guardando…' : 'Subir imagen'}</button>{product.image_path && <button type="button" className="marketing-secondary-action" onClick={() => updateImage('DELETE')} disabled={busy || !csrfToken}>Quitar imagen</button>}</div><button type="button" className="marketing-secondary-action" onClick={() => onTogglePublished(product)} disabled={busy || !csrfToken}>{product.is_published ? 'Retirar de la landing' : 'Publicar en la landing'}</button></div>}
+      {error && <p className="quote-error" role="alert">{error}</p>}{message && <p className="quote-success" role="status">{message}</p>}
+    </div>
+  </article>
+}
+
 function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
   const [categories, setCategories] = useState<Category[]>([])
@@ -654,7 +698,7 @@ function PrivateApp() {
   const [territories, setTerritories] = useState<Territory[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [industrySegments, setIndustrySegments] = useState<IndustrySegmentOption[]>([])
-  const [activeSection, setActiveSection] = useState<'summary' | 'branding' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'quoteTracking'>('summary')
+  const [activeSection, setActiveSection] = useState<'summary' | 'branding' | 'marketing' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'quoteTracking'>('summary')
   const [catalogSection, setCatalogSection] = useState<'products' | 'categories' | 'import' | 'matching'>('products')
   const [opportunityStatus, setOpportunityStatus] = useState<'ALL' | Opportunity['status']>('ALL')
   const [generatingOpportunities, setGeneratingOpportunities] = useState(false)
@@ -906,6 +950,7 @@ function PrivateApp() {
         <nav aria-label="Administración de la empresa">
           <button className={activeSection === 'summary' ? 'is-active' : ''} onClick={() => setActiveSection('summary')}>Resumen</button>
           {state.data.role === 'OWNER' && <button className={activeSection === 'branding' ? 'is-active' : ''} onClick={() => setActiveSection('branding')}>Mi marca</button>}
+          <button className={activeSection === 'marketing' ? 'is-active' : ''} onClick={() => setActiveSection('marketing')}>Marketing</button>
           <button className={activeSection === 'catalog' ? 'is-active' : ''} onClick={() => setActiveSection('catalog')}>Catálogo <span>{products.length}</span></button>
           <button className={activeSection === 'prospects' ? 'is-active' : ''} onClick={() => setActiveSection('prospects')}>Prospectos <span>{prospects.length}</span></button>
           <button className={activeSection === 'territories' ? 'is-active' : ''} onClick={() => setActiveSection('territories')}>Territorios <span>{territories.length}</span></button>
@@ -918,13 +963,14 @@ function PrivateApp() {
       <div className="admin-content">
         <section className="private-heading">
           <span className="eyebrow">ÁREA PRIVADA</span>
-          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ branding: 'Identidad de la empresa', catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
+          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ branding: 'Identidad de la empresa', marketing: 'Marketing y vitrina pública', catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
           <p>Selecciona una opción del menú para administrar esta empresa.</p>
         </section>
         {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
 
         {activeSection === 'summary' && <section className="summary-grid" aria-label="Resumen de la empresa">
           {state.data.role === 'OWNER' && <button onClick={() => setActiveSection('branding')}><span>Mi marca</span><strong>↗</strong><small>colores, correo y logo de la landing</small></button>}
+          <button onClick={() => setActiveSection('marketing')}><span>Marketing</span><strong>{products.filter((product) => product.is_published).length}</strong><small>productos publicados e imágenes</small></button>
           <button onClick={() => setActiveSection('catalog')}><span>Catálogo</span><strong>{products.length}</strong><small>productos registrados</small></button>
           <button onClick={() => setActiveSection('prospects')}><span>Prospectos</span><strong>{prospects.length}</strong><small>organizaciones potenciales</small></button>
           <button onClick={() => setActiveSection('territories')}><span>Territorios</span><strong>{territories.length}</strong><small>zonas comerciales</small></button>
@@ -935,22 +981,24 @@ function PrivateApp() {
 
         {activeSection === 'branding' && state.data.role === 'OWNER' && <BrandSettingsPanel tenant={state.data} csrfToken={csrfToken} onSaved={(tenant) => setState({ phase: 'ready', data: tenant })} />}
 
+        {activeSection === 'marketing' && <section className="marketing-workspace"><div className="marketing-heading"><div><span className="eyebrow">VITRINA PÚBLICA</span><h2>Productos en tu landing</h2><p>Asigna una imagen a cada producto y decide cuáles aparecen para tus clientes. Los productos se crean en Catálogo.</p></div><a href="/" target="_blank" rel="noopener noreferrer">Ver landing pública ↗</a></div>{products.length === 0 ? <div className="marketing-empty"><p>Todavía no hay productos para mostrar.</p><button type="button" onClick={() => setActiveSection('catalog')}>Crear productos en Catálogo</button></div> : <div className="marketing-product-grid">{products.map((product) => <MarketingProductCard key={product.id} product={product} canEdit={canEdit} csrfToken={csrfToken} onUpdated={(updated) => setProducts((current) => current.map((item) => item.id === updated.id ? updated : item))} onTogglePublished={togglePublished} />)}</div>}</section>}
+
         {activeSection === 'catalog' && <section className="catalog-workspace">
           <div className="catalog-workspace-intro">
             <div><span className="eyebrow">CENTRO DE CATÁLOGO</span><h2>Gestiona la oferta comercial por etapas</h2><p>Separamos productos, categorías, importación y reglas de oportunidad para trabajar con menos ruido.</p></div>
             <div className="catalog-health" aria-label="Estado del catálogo"><strong>{products.length}</strong><span>productos</span><strong>{categories.length}</strong><span>categorías</span></div>
           </div>
           <nav className="catalog-subnav" aria-label="Secciones del catálogo">
-            <button className={catalogSection === 'products' ? 'is-active' : ''} onClick={() => setCatalogSection('products')}><span>01</span><strong>Productos</strong><small>Oferta, precios y publicación</small></button>
+            <button className={catalogSection === 'products' ? 'is-active' : ''} onClick={() => setCatalogSection('products')}><span>01</span><strong>Productos</strong><small>Oferta, precios y disponibilidad</small></button>
             <button className={catalogSection === 'categories' ? 'is-active' : ''} onClick={() => setCatalogSection('categories')}><span>02</span><strong>Categorías</strong><small>Organización de la oferta</small></button>
             <button className={catalogSection === 'import' ? 'is-active' : ''} onClick={() => setCatalogSection('import')}><span>03</span><strong>Importación</strong><small>Carga masiva revisable</small></button>
             <button className={catalogSection === 'matching' ? 'is-active' : ''} onClick={() => setCatalogSection('matching')}><span>04</span><strong>Reglas comerciales</strong><small>Segmentos y palabras clave</small></button>
           </nav>
 
           {catalogSection === 'products' && <div className="catalog-module">
-            <header className="module-heading"><div><span className="eyebrow">PRODUCTOS</span><h2>Oferta comercial</h2><p>Crea productos y controla disponibilidad, precio y publicación desde una sola vista.</p></div></header>
-            {canEdit && <form className="catalog-form product-create-form" onSubmit={createProduct}><div><span className="eyebrow">NUEVO PRODUCTO</span><h3>Datos esenciales</h3></div><label>Categoría<select name="category" required defaultValue=""><option value="" disabled>Selecciona una categoría</option>{categories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Nombre<input name="name" required maxLength={160} /></label><label>SKU<input name="sku" required maxLength={80} /></label><label>Formato<input name="format" maxLength={120} /></label><label>Precio<input name="price" type="number" min="0" step="0.01" /></label><label className="wide-field">Descripción<textarea name="description" maxLength={1000} /></label><button type="submit" disabled={!csrfToken || categories.length === 0}>Crear producto</button></form>}
-            <section className="catalog-list"><div className="catalog-list-heading"><div><span className="eyebrow">INVENTARIO</span><h2>Productos de {state.data.name}</h2></div><strong>{products.length} producto{products.length === 1 ? '' : 's'}</strong></div>{products.length === 0 ? <p className="empty-catalog">Todavía no hay productos.</p> : <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}</small></td><td>{product.category_name}</td><td>{product.price ? `$${Number(product.price).toLocaleString('es-CL')}` : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{canEdit ? <button className={`publish-button ${product.is_published ? 'is-published' : ''}`} onClick={() => togglePublished(product)}>{product.is_published ? 'Publicado' : 'Publicar'}</button> : product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>}</section>
+            <header className="module-heading"><div><span className="eyebrow">PRODUCTOS</span><h2>Oferta comercial</h2><p>Crea productos y define sus precios. Las imágenes y la publicación se gestionan en Marketing.</p></div></header>
+            {canEdit && <form className="catalog-form product-create-form" onSubmit={createProduct}><div><span className="eyebrow">NUEVO PRODUCTO</span><h3>Datos esenciales</h3></div><label>Categoría<select name="category" required defaultValue=""><option value="" disabled>Selecciona una categoría</option>{categories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Nombre<input name="name" required maxLength={160} /></label><label>SKU<input name="sku" required maxLength={80} /></label><label>Formato<input name="format" maxLength={120} /></label><label>Precio (CLP)<input name="price" type="number" inputMode="numeric" min="0" step="1" /></label><label className="wide-field">Descripción<textarea name="description" maxLength={1000} /></label><button type="submit" disabled={!csrfToken || categories.length === 0}>Crear producto</button></form>}
+            <section className="catalog-list"><div className="catalog-list-heading"><div><span className="eyebrow">INVENTARIO</span><h2>Productos de {state.data.name}</h2></div><strong>{products.length} producto{products.length === 1 ? '' : 's'}</strong></div>{products.length === 0 ? <p className="empty-catalog">Todavía no hay productos.</p> : <div className="catalog-table-wrap"><table><thead><tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th><th>Publicación</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><strong>{product.name}</strong><small>{product.sku}</small></td><td>{product.category_name}</td><td>{product.price ? formatClp(product.price) : 'Por cotizar'}</td><td>{product.is_available ? 'Disponible' : 'No disponible'}</td><td>{product.is_published ? 'Publicado' : 'Borrador'}</td></tr>)}</tbody></table></div>}</section>
           </div>}
 
           {catalogSection === 'categories' && <div className="catalog-module category-module">

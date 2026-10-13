@@ -76,7 +76,7 @@ def test_public_landing_resolves_company_a_without_private_fields(tenant_a, tena
 
     assert response.status_code == 200
     assert response.json()["name"] == "Empresa A"
-    assert response.json()["featured_offerings"][0]["name"] == "Servicio Empresa A"
+    assert "featured_offerings" not in response.json()
     assert "Empresa B" not in str(response.json())
     assert {"id", "slug", "is_active", "domains", "memberships"}.isdisjoint(response.json())
     assert response["Cache-Control"] == "no-store"
