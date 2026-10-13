@@ -1,12 +1,14 @@
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 from rest_framework import serializers
 
 from apps.catalog.models import Product
+from apps.tenancy.models import Tenant
 
-from .models import Quote, QuoteItem, QuoteRequest, QuoteRequestItem
+from .models import PurchaseOrder, PurchaseOrderItem, Quote, QuoteItem, QuoteRequest, QuoteRequestItem
 
 
 class PublicQuoteItemSerializer(serializers.Serializer):
@@ -66,6 +68,104 @@ class PublicQuoteRequestSerializer(serializers.ModelSerializer):
                 ]
             )
         return quote_request
+
+
+class PurchaseOrderItemSerializer(serializers.ModelSerializer):
+    unit_price = serializers.IntegerField(read_only=True)
+    line_total = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = PurchaseOrderItem
+        fields = ("product_name", "product_sku", "quantity", "unit_price", "line_total")
+
+
+class PurchaseOrderSerializer(serializers.ModelSerializer):
+    items = PurchaseOrderItemSerializer(many=True, read_only=True)
+    total = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = PurchaseOrder
+        fields = ("id", "folio", "full_name", "company_name", "email", "phone", "delivery_method", "delivery_address", "notes", "status", "items", "total", "created_at")
+
+
+class PublicPurchaseItemSerializer(serializers.Serializer):
+    product = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1, max_value=100_000)
+
+
+class PublicPurchaseOrderSerializer(serializers.ModelSerializer):
+    items = PublicPurchaseItemSerializer(many=True, allow_empty=False, write_only=True)
+    consent = serializers.BooleanField(write_only=True)
+    website = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    total = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = PurchaseOrder
+        fields = ("id", "folio", "full_name", "company_name", "email", "phone", "delivery_method", "delivery_address", "notes", "items", "consent", "website", "total")
+        read_only_fields = ("id", "folio", "total")
+
+    def validate(self, attrs):
+        if attrs.pop("website", ""):
+            raise serializers.ValidationError("No fue posible enviar el pedido.")
+        if not attrs.pop("consent"):
+            raise serializers.ValidationError({"consent": "Debes autorizar el contacto para coordinar el pedido."})
+        if not attrs.get("email") and not attrs.get("phone"):
+            raise serializers.ValidationError("Ingresa un correo electrónico o teléfono.")
+        if attrs["delivery_method"] == PurchaseOrder.DeliveryMethod.SHIPPING and not attrs.get("delivery_address", "").strip():
+            raise serializers.ValidationError({"delivery_address": "Ingresa la dirección de despacho."})
+        if attrs["delivery_method"] != PurchaseOrder.DeliveryMethod.SHIPPING:
+            attrs["delivery_address"] = ""
+        if len(attrs["items"]) > 50:
+            raise serializers.ValidationError({"items": "Puedes incluir hasta 50 productos por pedido."})
+        product_ids = [item["product"] for item in attrs["items"]]
+        if len(product_ids) != len(set(product_ids)):
+            raise serializers.ValidationError({"items": "Cada producto puede aparecer una sola vez."})
+        return attrs
+
+    def create(self, validated_data):
+        items = validated_data.pop("items")
+        tenant = self.context["request"].tenant
+        with transaction.atomic():
+            Tenant.objects.select_for_update().get(pk=tenant.pk)
+            products = Product.objects.select_for_update().filter(
+                id__in=[item["product"] for item in items], tenant=tenant,
+                category__is_active=True, is_available=True, is_published=True,
+            )
+            resolved = {product.id: product for product in products}
+            if len(resolved) != len(items):
+                raise serializers.ValidationError({"items": "Uno o más productos no están disponibles."})
+            for product in resolved.values():
+                if product.price is None or product.price <= 0 or product.price != product.price.to_integral_value():
+                    raise serializers.ValidationError({"items": "Un producto no tiene precio de compra en pesos enteros. Solicita una cotización."})
+            last_number = PurchaseOrder.objects.filter(tenant=tenant).aggregate(Max("number"))["number__max"] or 0
+            order = PurchaseOrder.objects.create(
+                tenant=tenant, number=last_number + 1, consent_at=timezone.now(), **validated_data,
+            )
+            PurchaseOrderItem.objects.bulk_create([
+                PurchaseOrderItem(
+                    order=order, product=resolved[item["product"]],
+                    product_name=resolved[item["product"]].name,
+                    product_sku=resolved[item["product"]].sku,
+                    quantity=item["quantity"], unit_price=resolved[item["product"]].price,
+                ) for item in items
+            ])
+        return order
+
+
+class PurchaseOrderStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PurchaseOrder
+        fields = ("status",)
+
+    def validate_status(self, value):
+        current = self.instance.status
+        allowed = {
+            PurchaseOrder.Status.NEW: {PurchaseOrder.Status.CONFIRMED, PurchaseOrder.Status.CANCELLED},
+            PurchaseOrder.Status.CONFIRMED: {PurchaseOrder.Status.COMPLETED, PurchaseOrder.Status.CANCELLED},
+        }
+        if value != current and value not in allowed.get(current, set()):
+            raise serializers.ValidationError("Este cambio de estado no está permitido.")
+        return value
 
 
 class PrivateQuoteItemSerializer(serializers.ModelSerializer):

@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, cotizaciones emitibles desde esas solicitudes, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía CRM, ventas ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, pedidos con pago por coordinar, cotizaciones emitibles desde esas solicitudes, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía pago en línea ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -19,7 +19,7 @@ Navegador ──► Django + DRF + WhiteNoise ──► PostgreSQL
 - `backend/apps/accounts/`: modelo de usuario personalizado desde la primera migración.
 - `backend/apps/catalog/`: categorías y productos comerciales aislados por tenant.
 - `backend/apps/health/`: comprobación pública y mínima de aplicación/base de datos.
-- `backend/apps/inquiries/`: solicitudes públicas de contacto/cotización y seguimiento inicial por tenant.
+- `backend/apps/inquiries/`: solicitudes, cotizaciones y pedidos aislados por tenant.
 - `backend/apps/prospecting/`: registro manual, revisión y detección asistida de duplicados de prospectos por tenant.
 - `backend/apps/tenancy/`: tenants, membresías, dominios, resolución segura, permisos y API pública/privada.
 - `Dockerfile`: build multi-stage; compila React y crea una imagen Python no privilegiada.
@@ -143,6 +143,9 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/catalog/import/preview/` | OWNER/ADMIN + CSRF | Valida un CSV y genera una vista previa temporal |
 | `/api/catalog/import/confirm/` | OWNER/ADMIN + CSRF | Confirma transaccionalmente una vista previa válida |
 | `/api/inquiries/public/` | Público limitado | Registra una solicitud para productos publicados del tenant actual |
+| `/api/inquiries/orders/public/` | Público limitado | Registra un pedido de productos publicados con precio en pesos enteros |
+| `/api/inquiries/orders/` | Privado | Lista pedidos del tenant actual |
+| `/api/inquiries/orders/<uuid>/` | Privado | Consulta un pedido; OWNER/ADMIN puede cambiar su estado |
 | `/api/inquiries/` | Privado | Lista solicitudes pertenecientes al tenant actual |
 | `/api/inquiries/<uuid>/` | Privado | Consulta una solicitud; OWNER/ADMIN puede cambiar su estado |
 | `/api/inquiries/<uuid>/quote/` | Privado | Consulta la cotización; OWNER/ADMIN crea o actualiza su borrador |
@@ -173,7 +176,7 @@ El propietario puede configurar en **Mi marca** el nombre de la empresa, los col
 
 En **Marketing**, `OWNER` y `ADMIN` pueden asignar una imagen PNG, JPEG o WebP a cada producto y decidir si aparece en la landing. La API ajusta la imagen, la guarda en PostgreSQL y entrega una versión WebP. Los productos se crean en **Catálogo**; las imágenes de productos sin publicar solo se consultan desde el área privada. La landing pública obtiene cada imagen por el dominio de su empresa. `STAFF` y `VIEWER` pueden revisar la vitrina sin modificarla.
 
-En la landing, el cliente puede buscar productos por nombre o SKU, filtrar por categoría y agregarlos a **Mi selección**. La vista muestra 12 productos por vez y permite cargar más; el resumen mantiene los productos elegidos al cambiar filtros, permite ajustar cantidades y abre un formulario de cotización que solo incluye esa selección. La solicitud continúa usando `/api/inquiries/public/`. La compra directa aún no se ofrece: requiere un flujo de pedidos, entrega y pago antes de habilitarla.
+En la landing, el cliente puede buscar productos por nombre o SKU, filtrar por categoría y agregarlos a **Mi selección**. La vista muestra 12 productos por vez y permite cargar más; el resumen mantiene los productos elegidos al cambiar filtros y permite ajustar cantidades. Desde la misma selección puede **Solicitar cotización** o **Comprar ahora**. La cotización usa `/api/inquiries/public/`; la compra registra un pedido con folio `PED-000001` y pago por coordinar. Comprar requiere que todos los productos elegidos tengan precio en pesos enteros y permite hasta 50 productos distintos. El cliente ve el total de productos antes de enviar; el costo de despacho, si corresponde, se coordina aparte. La aplicación no procesa cobros ni envía correos automáticos.
 
 El área privada permite crear categorías y productos, registrar SKU, formato, precio y disponibilidad. Solo `OWNER` y `ADMIN` pueden modificar el catálogo; `STAFF` y `VIEWER` conservan acceso de lectura. La API asigna siempre el tenant desde el hostname resuelto, no desde datos enviados por el navegador, y rechaza categorías pertenecientes a otra empresa. La landing expone únicamente productos publicados, disponibles y asociados a categorías activas.
 
@@ -186,6 +189,8 @@ La landing permite seleccionar productos publicados, indicar cantidades y enviar
 `OWNER` y `ADMIN` pueden abrir una solicitud desde su tarjeta y preparar una cotización, fijando precio unitario en pesos enteros, tasa de impuesto, vigencia y condiciones. El servidor calcula subtotal, impuesto redondeado al peso y total en CLP y conserva una copia de los productos y cantidades solicitados. Cada empresa recibe folios correlativos `COT-000001`, `COT-000002`, etc.; las cotizaciones anteriores reciben folio al aplicar la migración. La pantalla y el documento imprimible muestran montos chilenos sin centavos (`$24.990`). Si una cotización anterior ya tiene precios con centavos, se conservan en la base de datos y se muestran redondeados al peso. El borrador puede actualizarse; al emitirlo queda inmutable y disponible como documento imprimible o PDF mediante el navegador. `STAFF` y `VIEWER` pueden consultarlo, pero no modificarlo. La emisión no envía correos ni constituye aceptación del cliente; el equipo comercial comparte el documento por el canal acordado. La tasa de impuesto debe revisarse según los productos y el tratamiento tributario aplicable.
 
 La sección **Seguimiento** reúne las cotizaciones emitidas y permite filtrarlas por resultado o atención pendiente. `OWNER` y `ADMIN` pueden marcar manualmente una cotización como enviada, aceptada o rechazada, programar el próximo contacto y guardar notas. La fecha de envío se registra al marcarla como enviada; «vencida» se calcula automáticamente cuando termina su vigencia sin resultado final. Marcarla como enviada no envía correos. Los roles de lectura pueden consultar el seguimiento sin cambiarlo.
+
+La sección **Pedidos** muestra los datos del cliente, entrega, productos y total congelado al registrar la compra. `OWNER` y `ADMIN` pueden pasar un pedido de nuevo a confirmado y completado, o cancelarlo; `STAFF` y `VIEWER` solo pueden consultarlo. La empresa confirma disponibilidad, entrega y pago directamente con el cliente. Cambios posteriores en nombres o precios del catálogo no alteran el pedido guardado.
 
 ### Prospectos manuales
 

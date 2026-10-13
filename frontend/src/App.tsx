@@ -66,6 +66,22 @@ type QuoteInquiry = {
   created_at: string
 }
 
+type PurchaseOrder = {
+  id: string
+  folio: string
+  full_name: string
+  company_name: string
+  email: string
+  phone: string
+  delivery_method: 'COORDINATE' | 'PICKUP' | 'SHIPPING'
+  delivery_address: string
+  notes: string
+  status: 'NEW' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED'
+  items: { product_name: string; product_sku: string; quantity: number; unit_price: string; line_total: string }[]
+  total: string
+  created_at: string
+}
+
 type FormalQuote = {
   id: string
   folio: string
@@ -178,9 +194,10 @@ function Brand({ name, logo }: { name: string; logo: string }) {
 
 type SelectedProduct = { product: PublicProduct; quantity: number }
 
-function PublicQuoteForm({ selectedItems, onSuccess }: { selectedItems: SelectedProduct[]; onSuccess: () => void }) {
+function PublicQuoteForm({ selectedItems, mode, onSuccess }: { selectedItems: SelectedProduct[]; mode: 'quote' | 'purchase'; onSuccess: (folio?: string) => void }) {
   const [phase, setPhase] = useState<'ready' | 'submitting' | 'error'>('ready')
   const [error, setError] = useState('')
+  const [deliveryMethod, setDeliveryMethod] = useState<'COORDINATE' | 'PICKUP' | 'SHIPPING'>('COORDINATE')
 
   async function submitRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -203,7 +220,11 @@ function PublicQuoteForm({ selectedItems, onSuccess }: { selectedItems: Selected
       company_name: data.get('company_name'),
       email: data.get('email'),
       phone: data.get('phone'),
-      message: data.get('message'),
+      ...(mode === 'quote' ? { message: data.get('message') } : {
+        notes: data.get('notes'),
+        delivery_method: data.get('delivery_method'),
+        delivery_address: data.get('delivery_address') ?? '',
+      }),
       website: data.get('website'),
       consent: data.get('consent') === 'on',
       items: selectedItems.map(({ product, quantity }) => ({
@@ -212,26 +233,28 @@ function PublicQuoteForm({ selectedItems, onSuccess }: { selectedItems: Selected
       })),
     }
     try {
-      const response = await fetch('/api/inquiries/public/', {
+      const response = await fetch(mode === 'quote' ? '/api/inquiries/public/' : '/api/inquiries/orders/public/', {
         method: 'POST',
         headers: { ...jsonHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       if (!response.ok) throw new Error('Request rejected')
+      const result = await response.json() as { folio?: string }
       form.reset()
-      onSuccess()
+      onSuccess(result.folio)
     } catch {
-      setError('No fue posible enviar la solicitud. Revisa tus datos e inténtalo nuevamente.')
+      setError(mode === 'quote' ? 'No fue posible enviar la solicitud. Revisa tus datos e inténtalo nuevamente.' : 'No fue posible registrar el pedido. Revisa tus datos e inténtalo nuevamente.')
       setPhase('error')
     }
   }
 
   return (
-    <form className="quote-form" onSubmit={submitRequest} aria-label="Solicitud de cotización">
+    <form className="quote-form" onSubmit={submitRequest} aria-label={mode === 'quote' ? 'Solicitud de cotización' : 'Finalizar compra'}>
       <div className="quote-products">
-        <span className="eyebrow">TU SOLICITUD</span>
+        <span className="eyebrow">{mode === 'quote' ? 'TU SOLICITUD' : 'TU PEDIDO'}</span>
         <h3>Productos elegidos</h3>
-        <ul>{selectedItems.map(({ product, quantity }) => <li key={product.id}><span>{product.name}</span><strong>× {quantity}</strong></li>)}</ul>
+        <ul>{selectedItems.map(({ product, quantity }) => <li key={product.id}><span>{product.name}</span><strong>× {quantity}{mode === 'purchase' && product.price ? ` · ${formatClp(String(Number(product.price) * quantity))}` : ''}</strong></li>)}</ul>
+        {mode === 'purchase' && <p className="checkout-total"><span>Total productos</span><strong>{formatClp(String(selectedItems.reduce((sum, { product, quantity }) => sum + Number(product.price) * quantity, 0)))}</strong></p>}
         <a href="#mi-seleccion">Modificar mi selección</a>
       </div>
       <div className="quote-fields">
@@ -240,27 +263,32 @@ function PublicQuoteForm({ selectedItems, onSuccess }: { selectedItems: Selected
         <label>Empresa<input name="company_name" maxLength={160} /></label>
         <div className="form-row"><label>Correo electrónico<input name="email" type="email" /></label><label>Teléfono<input name="phone" maxLength={40} /></label></div>
         <small className="quote-contact-hint">Ingresa al menos uno de estos datos para que podamos responderte.</small>
-        <label>Mensaje<textarea name="message" maxLength={1500} /></label>
+        {mode === 'purchase' && <><label>Entrega<select name="delivery_method" value={deliveryMethod} onChange={(event) => setDeliveryMethod(event.target.value as typeof deliveryMethod)}><option value="COORDINATE">A coordinar con la empresa</option><option value="PICKUP">Retiro</option><option value="SHIPPING">Despacho</option></select></label>{deliveryMethod === 'SHIPPING' && <label>Dirección de despacho<input name="delivery_address" maxLength={300} required placeholder="Calle, número, comuna y región" /></label>}</>}
+        <label>{mode === 'quote' ? 'Mensaje' : 'Indicaciones para el pedido'}<textarea name={mode === 'quote' ? 'message' : 'notes'} maxLength={1500} /></label>
         <label className="honeypot" aria-hidden="true">Sitio web<input name="website" tabIndex={-1} autoComplete="off" /></label>
-        <label className="consent-field"><input name="consent" type="checkbox" required /> Autorizo que esta empresa me contacte para responder mi solicitud.</label>
+        <label className="consent-field"><input name="consent" type="checkbox" required /> {mode === 'quote' ? 'Autorizo que esta empresa me contacte para responder mi solicitud.' : 'Autorizo que esta empresa me contacte para coordinar mi pedido.'}</label>
+        {mode === 'purchase' && <p className="checkout-hint">Tu pedido quedará registrado. La empresa confirmará disponibilidad, entrega y forma de pago. El despacho, si aplica, se coordina por separado.</p>}
         {phase === 'error' && <p className="quote-error" role="alert">{error}</p>}
-        <button type="submit" disabled={phase === 'submitting' || selectedItems.length === 0}>{phase === 'submitting' ? 'Enviando…' : 'Enviar solicitud'}</button>
+        <button type="submit" disabled={phase === 'submitting' || selectedItems.length === 0}>{phase === 'submitting' ? 'Enviando…' : mode === 'quote' ? 'Enviar solicitud' : 'Confirmar pedido'}</button>
       </div>
     </form>
   )
 }
 
-function SelectionPanel({ items, onQuantityChange, onRemove, onQuote }: {
+function SelectionPanel({ items, onQuantityChange, onRemove, onQuote, onPurchase }: {
   items: SelectedProduct[]
   onQuantityChange: (productId: string, quantity: number) => void
   onRemove: (productId: string) => void
   onQuote: () => void
+  onPurchase: () => void
 }) {
+  const purchasable = items.length > 0 && items.length <= 50 && items.every(({ product }) => product.price !== null && Number(product.price) > 0 && Number.isInteger(Number(product.price)))
   return <aside className="landing-selection" id="mi-seleccion" aria-labelledby="selection-title">
     <div className="selection-heading"><span className="eyebrow">TU PEDIDO</span><h3 id="selection-title">Mi selección</h3><p aria-live="polite">{items.length} producto{items.length === 1 ? '' : 's'} elegido{items.length === 1 ? '' : 's'}</p></div>
     {items.length === 0 ? <p className="selection-empty">Agrega productos del catálogo para preparar tu solicitud.</p> : <ul className="selection-items">{items.map(({ product, quantity }) => <li key={product.id}><div><strong>{product.name}</strong><small>{product.format || product.category}</small></div><label>Cantidad<input type="number" inputMode="numeric" min="1" max="100000" value={quantity} aria-label={`Cantidad de ${product.name}`} onChange={(event) => onQuantityChange(product.id, Math.min(100000, Math.max(1, Math.trunc(Number(event.target.value)) || 1)))} /></label><button type="button" onClick={() => onRemove(product.id)} aria-label={`Quitar ${product.name}`}>Quitar</button></li>)}</ul>}
     <button className="selection-quote-button" type="button" disabled={items.length === 0} onClick={onQuote}>Solicitar cotización <span aria-hidden="true">→</span></button>
-    <small className="selection-note">La empresa confirmará precio y condiciones al responder tu solicitud.</small>
+    <button className="selection-purchase-button" type="button" disabled={!purchasable} onClick={onPurchase}>Comprar ahora <span aria-hidden="true">→</span></button>
+    <small className="selection-note">{purchasable ? `Total productos: ${formatClp(String(items.reduce((sum, { product, quantity }) => sum + Number(product.price) * quantity, 0)))}. Pago y entrega a coordinar.` : items.length > 50 ? 'Un pedido admite hasta 50 productos distintos. Puedes reducir la selección o solicitar una cotización.' : items.length ? 'Para comprar, todos los productos deben tener precio. Puedes solicitar una cotización.' : 'Elige productos para cotizar o comprar.'}</small>
   </aside>
 }
 
@@ -272,8 +300,8 @@ function PublicLanding() {
   const [category, setCategory] = useState('')
   const [visibleCount, setVisibleCount] = useState(12)
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({})
-  const [quoteOpen, setQuoteOpen] = useState(false)
-  const [requestSent, setRequestSent] = useState(false)
+  const [checkoutMode, setCheckoutMode] = useState<'quote' | 'purchase' | null>(null)
+  const [completedRequest, setCompletedRequest] = useState<{ mode: 'quote' | 'purchase'; folio?: string } | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -290,8 +318,8 @@ function PublicLanding() {
   }, [])
 
   useEffect(() => {
-    if (quoteOpen) document.getElementById('cotizar')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  }, [quoteOpen])
+    if (checkoutMode) document.getElementById('cotizar')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [checkoutMode])
 
   if (state.phase === 'loading') {
     return <main className="centered-state" role="status">Preparando la experiencia…</main>
@@ -309,7 +337,7 @@ function PublicLanding() {
 
   function addProduct(productId: string) {
     setSelectedQuantities((current) => ({ ...current, [productId]: current[productId] || 1 }))
-    setRequestSent(false)
+    setCompletedRequest(null)
   }
 
   function removeProduct(productId: string) {
@@ -320,10 +348,10 @@ function PublicLanding() {
     })
   }
 
-  function startQuote() {
+  function startCheckout(mode: 'quote' | 'purchase') {
     if (selectedItems.length === 0) return
-    setQuoteOpen(true)
-    setRequestSent(false)
+    setCheckoutMode(mode)
+    setCompletedRequest(null)
   }
   const theme = {
     '--tenant-primary': tenant.theme.primary,
@@ -334,7 +362,7 @@ function PublicLanding() {
   } as CSSProperties
 
   return (
-    <main className={`tenant-site ${selectedItems.length > 0 && !quoteOpen ? 'has-selection' : ''}`} style={theme}>
+    <main className={`tenant-site ${selectedItems.length > 0 && !checkoutMode ? 'has-selection' : ''}`} style={theme}>
       <header className="site-header">
         <nav className="public-nav landing-nav page-width" aria-label="Navegación pública">
           <Brand name={tenant.name} logo={tenant.logo_path} />
@@ -356,12 +384,12 @@ function PublicLanding() {
       <section className="landing-offers page-width" id="productos" aria-labelledby="offerings-title">
         <div className="landing-section-heading"><span className="eyebrow">CATÁLOGO</span><h2 id="offerings-title">Productos</h2><p>Explora nuestra selección y cuéntanos qué necesitas.</p></div>
         {tenant.products.length === 0 && <p className="landing-empty-offer">Estamos preparando nuestro catálogo. Escríbenos y te ayudaremos a encontrar lo que buscas.</p>}
-        {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'} disponible{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-tools"><label>Buscar productos<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(12) }} placeholder="Nombre o código del producto" /></label><label>Categoría<select value={category} onChange={(event) => { setCategory(event.target.value); setVisibleCount(12) }}><option value="">Todas las categorías</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div><div className="landing-shop-layout"><div><p className="landing-result-count" role="status">{filteredProducts.length} resultado{filteredProducts.length === 1 ? '' : 's'}</p>{filteredProducts.length === 0 ? <div className="landing-no-results"><p>No encontramos productos con esos filtros.</p><button type="button" onClick={() => { setSearch(''); setCategory(''); setVisibleCount(12) }}>Limpiar búsqueda</button></div> : <><div className="landing-product-grid">{visibleProducts.map((product) => <article key={product.id}><div className="landing-product-image">{product.image_path ? <img src={product.image_path} alt={product.name} loading="lazy" /> : <span>Imagen próximamente</span>}</div><div className="landing-product-detail"><span className="landing-product-category">{product.category}</span><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="landing-product-footer">{product.format && <span>{product.format}</span>}<strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div><button type="button" className="landing-add-product" disabled={Boolean(selectedQuantities[product.id])} onClick={() => addProduct(product.id)}>{selectedQuantities[product.id] ? 'Agregado a mi selección ✓' : 'Agregar a mi selección'}</button></div></article>)}</div>{visibleCount < filteredProducts.length && <button type="button" className="landing-show-more" onClick={() => setVisibleCount((count) => count + 12)}>Mostrar más productos</button>}</>}</div><SelectionPanel items={selectedItems} onQuantityChange={(productId, quantity) => setSelectedQuantities((current) => ({ ...current, [productId]: quantity }))} onRemove={removeProduct} onQuote={startQuote} /></div></div>}
+        {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'} disponible{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-tools"><label>Buscar productos<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(12) }} placeholder="Nombre o código del producto" /></label><label>Categoría<select value={category} onChange={(event) => { setCategory(event.target.value); setVisibleCount(12) }}><option value="">Todas las categorías</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div><div className="landing-shop-layout"><div><p className="landing-result-count" role="status">{filteredProducts.length} resultado{filteredProducts.length === 1 ? '' : 's'}</p>{filteredProducts.length === 0 ? <div className="landing-no-results"><p>No encontramos productos con esos filtros.</p><button type="button" onClick={() => { setSearch(''); setCategory(''); setVisibleCount(12) }}>Limpiar búsqueda</button></div> : <><div className="landing-product-grid">{visibleProducts.map((product) => <article key={product.id}><div className="landing-product-image">{product.image_path ? <img src={product.image_path} alt={product.name} loading="lazy" /> : <span>Imagen próximamente</span>}</div><div className="landing-product-detail"><span className="landing-product-category">{product.category}</span><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="landing-product-footer">{product.format && <span>{product.format}</span>}<strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div><button type="button" className="landing-add-product" disabled={Boolean(selectedQuantities[product.id])} onClick={() => addProduct(product.id)}>{selectedQuantities[product.id] ? 'Agregado a mi selección ✓' : 'Agregar a mi selección'}</button></div></article>)}</div>{visibleCount < filteredProducts.length && <button type="button" className="landing-show-more" onClick={() => setVisibleCount((count) => count + 12)}>Mostrar más productos</button>}</>}</div><SelectionPanel items={selectedItems} onQuantityChange={(productId, quantity) => setSelectedQuantities((current) => ({ ...current, [productId]: quantity }))} onRemove={removeProduct} onQuote={() => startCheckout('quote')} onPurchase={() => startCheckout('purchase')} /></div></div>}
       </section>
 
-      <section className="landing-contact" id="contacto"><div className="page-width"><div className="landing-contact-heading"><div><span className="eyebrow">HABLEMOS</span><h2>Conversemos sobre lo que necesitas.</h2></div><div className="landing-contact-links">{tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}{tenant.contact.phone && <a href={`tel:${tenant.contact.phone}`}>{tenant.contact.phone}</a>}</div></div>{requestSent && <p className="quote-success landing-request-success" role="status">Solicitud enviada. El equipo comercial se pondrá en contacto contigo.</p>}{quoteOpen && selectedItems.length > 0 && <div id="cotizar"><PublicQuoteForm selectedItems={selectedItems} onSuccess={() => { setSelectedQuantities({}); setQuoteOpen(false); setRequestSent(true) }} /></div>}</div></section>
+      <section className="landing-contact" id="contacto"><div className="page-width"><div className="landing-contact-heading"><div><span className="eyebrow">HABLEMOS</span><h2>Conversemos sobre lo que necesitas.</h2></div><div className="landing-contact-links">{tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}{tenant.contact.phone && <a href={`tel:${tenant.contact.phone}`}>{tenant.contact.phone}</a>}</div></div>{completedRequest && <p className="quote-success landing-request-success" role="status">{completedRequest.mode === 'quote' ? 'Solicitud enviada. El equipo comercial se pondrá en contacto contigo.' : `Pedido ${completedRequest.folio ?? ''} registrado. La empresa se pondrá en contacto contigo para confirmar entrega y pago.`}</p>}{checkoutMode && selectedItems.length > 0 && <div id="cotizar"><div className="checkout-heading"><h2>{checkoutMode === 'quote' ? 'Solicitar cotización' : 'Finalizar compra'}</h2><button type="button" onClick={() => setCheckoutMode(null)}>Volver a mi selección</button></div><PublicQuoteForm key={checkoutMode} mode={checkoutMode} selectedItems={selectedItems} onSuccess={(folio) => { setSelectedQuantities({}); setCompletedRequest({ mode: checkoutMode, folio }); setCheckoutMode(null) }} /></div>}</div></section>
 
-      {selectedItems.length > 0 && !quoteOpen && <a className="selection-mobile-bar" href="#mi-seleccion">Mi selección · {selectedItems.length} producto{selectedItems.length === 1 ? '' : 's'} <span aria-hidden="true">↑</span></a>}
+      {selectedItems.length > 0 && !checkoutMode && <a className="selection-mobile-bar" href="#mi-seleccion">Mi selección · {selectedItems.length} producto{selectedItems.length === 1 ? '' : 's'} <span aria-hidden="true">↑</span></a>}
 
       <footer className="public-footer page-width"><Brand name={tenant.name} logo={tenant.logo_path} /><span>{tenant.is_demo ? 'Contenido sintético de demostración' : 'Sitio impulsado por MAGAVI'}</span></footer>
     </main>
@@ -758,11 +786,12 @@ function PrivateApp() {
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [inquiries, setInquiries] = useState<QuoteInquiry[]>([])
+  const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [territories, setTerritories] = useState<Territory[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [industrySegments, setIndustrySegments] = useState<IndustrySegmentOption[]>([])
-  const [activeSection, setActiveSection] = useState<'summary' | 'branding' | 'marketing' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'quoteTracking'>('summary')
+  const [activeSection, setActiveSection] = useState<'summary' | 'branding' | 'marketing' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'orders' | 'quoteTracking'>('summary')
   const [catalogSection, setCatalogSection] = useState<'products' | 'categories' | 'import' | 'matching'>('products')
   const [opportunityStatus, setOpportunityStatus] = useState<'ALL' | Opportunity['status']>('ALL')
   const [generatingOpportunities, setGeneratingOpportunities] = useState(false)
@@ -772,6 +801,8 @@ function PrivateApp() {
   const [trackingSearch, setTrackingSearch] = useState('')
   const [csrfToken, setCsrfToken] = useState('')
   const [catalogError, setCatalogError] = useState('')
+  const [orderError, setOrderError] = useState('')
+  const [busyOrderId, setBusyOrderId] = useState<string | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -779,22 +810,24 @@ function PrivateApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
         const tenant = (await response.json()) as TenantContext
-        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, prospectResponse, territoryResponse, opportunityResponse, industryResponse] = await Promise.all([
+        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, orderResponse, prospectResponse, territoryResponse, opportunityResponse, industryResponse] = await Promise.all([
           fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/inquiries/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/inquiries/orders/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/territories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/opportunities/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/industry-segments/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
         ])
-        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !prospectResponse.ok || !territoryResponse.ok || !opportunityResponse.ok || !industryResponse.ok) throw new Error('Private data unavailable')
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !orderResponse.ok || !prospectResponse.ok || !territoryResponse.ok || !opportunityResponse.ok || !industryResponse.ok) throw new Error('Private data unavailable')
         const session = (await sessionResponse.json()) as AuthSession
         setCategories((await categoryResponse.json()) as Category[])
         setProducts((await productResponse.json()) as Product[])
         setCsrfToken(session.csrf_token ?? '')
         setInquiries((await inquiryResponse.json()) as QuoteInquiry[])
+        setOrders((await orderResponse.json()) as PurchaseOrder[])
         setProspects((await prospectResponse.json()) as Prospect[])
         setTerritories((await territoryResponse.json()) as Territory[])
         setOpportunities((await opportunityResponse.json()) as Opportunity[])
@@ -1007,6 +1040,26 @@ function PrivateApp() {
     if (response) setOpportunities((current) => current.map((item) => item.id === opportunity.id ? response as Opportunity : item))
   }
 
+  async function updateOrderStatus(order: PurchaseOrder, nextStatus: PurchaseOrder['status']) {
+    if (!csrfToken || busyOrderId) return
+    setBusyOrderId(order.id)
+    setOrderError('')
+    try {
+      const response = await fetch(`/api/inquiries/orders/${order.id}/`, {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ status: nextStatus }),
+      })
+      if (!response.ok) throw new Error('Order update failed')
+      const updated = await response.json() as PurchaseOrder
+      setOrders((current) => current.map((item) => item.id === updated.id ? updated : item))
+    } catch {
+      setOrderError('No fue posible actualizar el pedido. Inténtalo nuevamente.')
+    } finally {
+      setBusyOrderId(null)
+    }
+  }
+
   return (
     <main className="private-shell admin-shell">
       <aside className="admin-sidebar">
@@ -1020,6 +1073,7 @@ function PrivateApp() {
           <button className={activeSection === 'territories' ? 'is-active' : ''} onClick={() => setActiveSection('territories')}>Territorios <span>{territories.length}</span></button>
           <button className={activeSection === 'opportunities' ? 'is-active' : ''} onClick={() => setActiveSection('opportunities')}>Oportunidades <span>{opportunities.filter((item) => item.status === 'PENDING').length}</span></button>
           <button className={activeSection === 'inquiries' ? 'is-active' : ''} onClick={() => setActiveSection('inquiries')}>Solicitudes <span>{inquiries.length}</span></button>
+          <button className={activeSection === 'orders' ? 'is-active' : ''} onClick={() => setActiveSection('orders')}>Pedidos <span>{orders.filter((order) => order.status === 'NEW').length}</span></button>
           <button className={activeSection === 'quoteTracking' ? 'is-active' : ''} onClick={() => setActiveSection('quoteTracking')}>Seguimiento <span>{attentionCount}</span></button>
         </nav>
         <div className="sidebar-footer"><small>{state.data.role}</small><LogoutButton /></div>
@@ -1027,7 +1081,7 @@ function PrivateApp() {
       <div className="admin-content">
         <section className="private-heading">
           <span className="eyebrow">ÁREA PRIVADA</span>
-          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ branding: 'Identidad de la empresa', marketing: 'Marketing y vitrina pública', catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
+          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ branding: 'Identidad de la empresa', marketing: 'Marketing y vitrina pública', catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', orders: 'Pedidos de clientes', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
           <p>Selecciona una opción del menú para administrar esta empresa.</p>
         </section>
         {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
@@ -1040,6 +1094,7 @@ function PrivateApp() {
           <button onClick={() => setActiveSection('territories')}><span>Territorios</span><strong>{territories.length}</strong><small>zonas comerciales</small></button>
           <button onClick={() => setActiveSection('opportunities')}><span>Oportunidades</span><strong>{opportunities.filter((item) => item.status === 'PENDING').length}</strong><small>recomendaciones por revisar</small></button>
           <button onClick={() => setActiveSection('inquiries')}><span>Solicitudes</span><strong>{inquiries.length}</strong><small>contactos recibidos</small></button>
+          <button onClick={() => setActiveSection('orders')}><span>Pedidos</span><strong>{orders.filter((order) => order.status === 'NEW').length}</strong><small>nuevos por gestionar</small></button>
           <button onClick={() => setActiveSection('quoteTracking')}><span>Seguimiento</span><strong>{attentionCount}</strong><small>cotizaciones que requieren atención</small></button>
         </section>}
 
@@ -1105,6 +1160,20 @@ function PrivateApp() {
         {activeSection === 'inquiries' && <section className="catalog-list inquiry-list">
           <div className="catalog-list-heading"><div><span className="eyebrow">SOLICITUDES</span><h2>Contactos y cotizaciones</h2><p>Selecciona una solicitud para revisar los datos del cliente y preparar su cotización.</p></div><strong>{inquiries.length} solicitud{inquiries.length === 1 ? '' : 'es'}</strong></div>
           {inquiries.length === 0 ? <p className="empty-catalog">Todavía no hay solicitudes comerciales.</p> : <div className="inquiry-grid">{inquiries.map((inquiry) => <InquiryCard key={inquiry.id} inquiry={inquiry} expanded={openInquiryId === inquiry.id} onToggle={() => setOpenInquiryId((current) => current === inquiry.id ? null : inquiry.id)} products={products} canEdit={canEdit} csrfToken={csrfToken} onStatusChange={(status) => updateInquiryStatus(inquiry, status)} onQuoteSaved={(quote) => setInquiries((current) => current.map((item) => item.id === inquiry.id ? { ...item, quote } : item))} />)}</div>}
+        </section>}
+
+        {activeSection === 'orders' && <section className="catalog-list order-list">
+          <div className="catalog-list-heading"><div><span className="eyebrow">COMPRAS</span><h2>Pedidos recibidos</h2><p>Confirma cada pedido con el cliente y coordina entrega y pago por tu cuenta.</p></div><strong>{orders.length} pedido{orders.length === 1 ? '' : 's'}</strong></div>
+          {orderError && <p className="quote-error" role="alert">{orderError}</p>}
+          {orders.length === 0 ? <p className="empty-catalog">Todavía no hay pedidos.</p> : <div className="order-grid">{orders.map((order) => <article className="order-card" key={order.id}>
+            <header><div><span className="eyebrow">{order.folio}</span><h3>{order.full_name}</h3><small>{order.company_name || 'Cliente particular'} · {new Date(order.created_at).toLocaleDateString('es-CL')}</small></div><span className={`order-status status-${order.status.toLowerCase()}`}>{({ NEW: 'Nuevo', CONFIRMED: 'Confirmado', COMPLETED: 'Completado', CANCELLED: 'Cancelado' } as const)[order.status]}</span></header>
+            <div className="order-contact">{order.email && <a href={`mailto:${order.email}`}>{order.email}</a>}{order.phone && <a href={`tel:${order.phone}`}>{order.phone}</a>}</div>
+            <p><strong>Entrega:</strong> {({ COORDINATE: 'Por coordinar', PICKUP: 'Retiro', SHIPPING: 'Despacho' } as const)[order.delivery_method]}{order.delivery_address ? ` · ${order.delivery_address}` : ''}</p>
+            {order.notes && <p><strong>Indicaciones:</strong> {order.notes}</p>}
+            <ul>{order.items.map((item) => <li key={item.product_sku}><span>{item.product_name} × {item.quantity}</span><strong>{formatClp(item.line_total)}</strong></li>)}</ul>
+            <div className="order-total"><span>Total productos</span><strong>{formatClp(order.total)}</strong></div>
+            {canEdit && <div className="order-actions">{order.status === 'NEW' && <button type="button" disabled={busyOrderId === order.id} onClick={() => updateOrderStatus(order, 'CONFIRMED')}>Marcar confirmado</button>}{order.status === 'CONFIRMED' && <button type="button" disabled={busyOrderId === order.id} onClick={() => updateOrderStatus(order, 'COMPLETED')}>Marcar completado</button>}{(order.status === 'NEW' || order.status === 'CONFIRMED') && <button type="button" className="order-cancel" disabled={busyOrderId === order.id} onClick={() => updateOrderStatus(order, 'CANCELLED')}>Cancelar pedido</button>}</div>}
+          </article>)}</div>}
         </section>}
 
         {activeSection === 'quoteTracking' && <section className="catalog-list tracking-list">

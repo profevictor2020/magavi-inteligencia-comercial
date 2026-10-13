@@ -14,8 +14,8 @@ from rest_framework.views import APIView
 from apps.tenancy.models import Tenant
 from apps.tenancy.permissions import TenantRolePermission
 
-from .models import Quote, QuoteItem, QuoteRequest
-from .serializers import PrivateQuoteRequestSerializer, PublicQuoteRequestSerializer, QuoteDraftSerializer, QuoteFollowUpSerializer, QuoteSerializer
+from .models import PurchaseOrder, Quote, QuoteItem, QuoteRequest
+from .serializers import PrivateQuoteRequestSerializer, PublicPurchaseOrderSerializer, PublicQuoteRequestSerializer, PurchaseOrderSerializer, PurchaseOrderStatusSerializer, QuoteDraftSerializer, QuoteFollowUpSerializer, QuoteSerializer
 
 
 class PublicQuoteRequestCreateView(CreateAPIView):
@@ -27,6 +27,43 @@ class PublicQuoteRequestCreateView(CreateAPIView):
 
     def perform_create(self, serializer):
         serializer.save()
+
+
+class PublicPurchaseOrderCreateView(CreateAPIView):
+    serializer_class = PublicPurchaseOrderSerializer
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public-order"
+
+    def create(self, request, *args, **kwargs):
+        if request.tenant is None:
+            return Response({"detail": "Empresa no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+        return super().create(request, *args, **kwargs)
+
+
+class PurchaseOrderListView(ListAPIView):
+    serializer_class = PurchaseOrderSerializer
+    permission_classes = [TenantRolePermission]
+
+    def get_queryset(self):
+        return PurchaseOrder.objects.filter(tenant=self.request.tenant).prefetch_related("items")
+
+
+class PurchaseOrderDetailView(RetrieveUpdateAPIView):
+    permission_classes = [TenantRolePermission]
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def get_queryset(self):
+        return PurchaseOrder.objects.filter(tenant=self.request.tenant).prefetch_related("items")
+
+    def get_serializer_class(self):
+        return PurchaseOrderStatusSerializer if self.request.method == "PATCH" else PurchaseOrderSerializer
+
+    def patch(self, request, *args, **kwargs):
+        super().patch(request, *args, **kwargs)
+        order = self.get_object()
+        return Response(PurchaseOrderSerializer(order).data)
 
 
 class QuoteRequestListView(ListAPIView):
