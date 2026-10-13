@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import models
 
@@ -44,3 +45,52 @@ class QuoteRequestItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product_name} × {self.quantity}"
+
+
+class Quote(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Borrador"
+        ISSUED = "ISSUED", "Emitida"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="quotes")
+    request = models.OneToOneField(QuoteRequest, on_delete=models.PROTECT, related_name="quote")
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.DRAFT)
+    valid_until = models.DateField()
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("19.00"))
+    notes = models.TextField(blank=True, max_length=1500)
+    issued_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def subtotal(self) -> Decimal:
+        return sum((item.unit_price * item.quantity for item in self.items.all()), Decimal("0.00"))
+
+    @property
+    def tax_amount(self) -> Decimal:
+        return (self.subtotal * self.tax_rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def total(self) -> Decimal:
+        return self.subtotal + self.tax_amount
+
+    def __str__(self) -> str:
+        return f"Cotización {self.id} · {self.tenant}"
+
+
+class QuoteItem(models.Model):
+    quote = models.ForeignKey(Quote, on_delete=models.CASCADE, related_name="items")
+    request_item = models.ForeignKey(QuoteRequestItem, on_delete=models.PROTECT, related_name="quote_items")
+    product_name = models.CharField(max_length=160)
+    product_sku = models.CharField(max_length=80)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    @property
+    def line_total(self) -> Decimal:
+        return self.unit_price * self.quantity
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [models.UniqueConstraint(fields=["quote", "request_item"], name="unique_request_item_per_quote")]
