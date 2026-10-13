@@ -120,22 +120,32 @@ h1, h2, h3, p { margin-top: 0; }
 .landing-nav .nav-links { gap: 26px; }
 .landing-nav .nav-links a:hover { color: var(--tenant-primary-text); }
 .landing-nav .app-link { padding: 11px 15px; border-radius: 8px; color: var(--tenant-primary-on); }
-.landing-hero { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(260px, .7fr); gap: clamp(30px, 6vw, 80px); align-items: center; padding-block: 62px 72px; }
-.landing-hero-copy .eyebrow, .landing-section-heading .eyebrow { color: var(--tenant-primary-text); }
-.landing-hero h1 { max-width: 750px; margin: 13px 0 20px; font-size: clamp(2.7rem, 5.6vw, 5.3rem); font-weight: 680; line-height: 1.03; letter-spacing: -.055em; }
-.landing-hero-copy > p { max-width: 650px; margin: 0; color: #53666e; font-size: 1.02rem; line-height: 1.65; }
+.landing-hero-wrap { color: #fff; background: radial-gradient(circle at 84% 12%, color-mix(in srgb, var(--tenant-primary) 64%, transparent), transparent 31%), color-mix(in srgb, var(--tenant-primary) 35%, #062d27); }
+.landing-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, .95fr); gap: clamp(32px, 5vw, 70px); align-items: center; padding-block: 58px 64px; }
+.landing-hero-copy .eyebrow { color: color-mix(in srgb, var(--tenant-secondary) 58%, white); }
+.landing-section-heading .eyebrow { color: var(--tenant-primary-text); }
+.landing-hero h1 { max-width: 660px; margin: 14px 0 18px; font-size: clamp(2.6rem, 5vw, 4.7rem); font-weight: 680; line-height: 1.04; letter-spacing: -.055em; }
+.landing-hero-copy > p { max-width: 620px; margin: 0; color: #e2eeeb; font-size: 1rem; line-height: 1.65; }
 .landing-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 15px 25px; margin-top: 30px; }
-.landing-main-action { display: inline-flex; align-items: center; gap: 12px; padding: 13px 19px; border-radius: 9px; color: var(--tenant-primary-on); background: var(--tenant-primary); font-size: .85rem; font-weight: 800; }
-.landing-main-action:hover { filter: brightness(.91); }
-.landing-text-action { padding-block: 8px; border-bottom: 1px solid currentColor; color: var(--tenant-primary-text); font-size: .84rem; font-weight: 800; }
-.landing-brand-panel { display: grid; justify-items: center; gap: 18px; padding: 34px; border: 1px solid color-mix(in srgb, var(--tenant-primary) 20%, #e9eeec); border-radius: 20px; background: color-mix(in srgb, var(--tenant-primary) 8%, white); }
-.landing-brand-image { display: grid; place-items: center; width: 100%; max-width: 255px; aspect-ratio: 1; padding: 25px; border-radius: 18px; background: white; box-shadow: 0 12px 30px rgba(23, 36, 43, .06); }
-.landing-brand-image img { display: block; max-width: 100%; max-height: 205px; object-fit: contain; }
-.landing-brand-panel > span { color: #52666d; font-size: .73rem; font-weight: 750; text-align: center; }
-.landing-offers { padding-block: 62px 76px; border-top: 1px solid #e8eeeb; }
-.landing-section-heading { margin-bottom: 25px; }
-.landing-section-heading h2 { margin: 9px 0 7px; font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -.045em; }
-.landing-section-heading p { margin: 0; color: #60727c; font-size: .9rem; }
+.landing-main-action { display: inline-flex; align-items: center; gap: 18px; padding: 14px 20px; border-radius: 7px; color: var(--tenant-primary-on); background: var(--tenant-primary); box-shadow: 0 8px 22px rgba(0,0,0,.13); font-size: .86rem; font-weight: 800; }
+.landing-main-action:hover { filter: brightness(1.12); }
+.landing-text-action { padding-block: 8px; border-bottom: 1px solid rgba(255,255,255,.75); color: #fff; font-size: .84rem; font-weight: 800; }
+.landing-hero-copy .landing-hero-count { margin-top: 28px; color: #d6e8e2; font-size: .77rem; font-weight: 750; letter-spacing: .03em; }
+.landing-showcase { min-width: 0; overflow: hidden; border: 1px solid rgba(255,255,255,.28); border-radius: 12px; background: #d9e7df; box-shadow: 0 18px 48px rgba(0,0,0,.19); }
+.landing-showcase-images { display: flex; gap: 5px; height: 330px; padding: 5px; }
+.landing-showcase-image { position: relative; flex: 1; min-width: 0; overflow: hidden; border-radius: 7px; background: #eef4f0; }
+.landing-showcase-image:first-child { flex: 1.45; }
+.landing-showcase-image img { width: 100%; height: 100%; object-fit: cover; }
+.landing-showcase-image span { position: absolute; right: 8px; bottom: 8px; left: 8px; overflow: hidden; padding: 7px 9px; border-radius: 5px; color: #fff; background: rgba(5, 40, 34, .85); font-size: .72rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.landing-showcase-logo { display: grid; place-items: center; height: 330px; padding: 46px; background: color-mix(in srgb, var(--tenant-primary) 11%, #f5faf7); }
+.landing-showcase-logo img { max-width: 75%; max-height: 210px; object-fit: contain; }
+.landing-showcase-caption { display: grid; gap: 5px; padding: 15px 20px 17px; color: #17342e; background: #fff; }
+.landing-showcase-caption span { color: var(--tenant-primary-text); font-size: .61rem; font-weight: 850; letter-spacing: .12em; }
+.landing-showcase-caption strong { font-size: .86rem; }
+.landing-offers { padding-block: 54px 72px; }
+.landing-section-heading { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 26px; }
+.landing-section-heading h2 { margin: 8px 0 0; font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -.045em; }
+.landing-section-heading p { max-width: 340px; margin: 0 0 5px; color: #60727c; font-size: .88rem; line-height: 1.5; }
 .landing-empty-offer { max-width: 590px; margin: 0; padding: 20px; border: 1px solid #e2e9e6; border-radius: 12px; color: #60727c; background: #fafcfb; line-height: 1.5; }
 .landing-catalog { margin-top: 0; }
 .landing-catalog-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 14px; }
@@ -148,7 +158,8 @@ h1, h2, h3, p { margin-top: 0; }
 .landing-shop-layout { display: grid; grid-template-columns: minmax(0, 1fr) 285px; align-items: start; gap: 24px; }
 .landing-result-count { margin: 0 0 13px; color: #60727c; font-size: .8rem; }
 .landing-product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
-.landing-product-grid article { overflow: hidden; min-width: 0; border: 1px solid #e2e9e6; border-radius: 13px; background: #fff; }
+.landing-product-grid article { overflow: hidden; min-width: 0; border: 1px solid #e2e9e6; border-radius: 10px; background: #fff; transition: transform .18s ease, box-shadow .18s ease; }
+.landing-product-grid article:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(22, 52, 61, .09); }
 .landing-product-image { display: grid; place-items: center; aspect-ratio: 4 / 3; overflow: hidden; color: #61747b; background: color-mix(in srgb, var(--tenant-primary) 7%, #f5f7f6); font-size: .78rem; font-weight: 700; }
 .landing-product-image img { width: 100%; height: 100%; object-fit: cover; }
 .landing-product-detail { padding: 18px 20px 20px; }
@@ -195,8 +206,8 @@ h1, h2, h3, p { margin-top: 0; }
 .landing-request-success { margin-top: 24px; }
 .landing-contact .quote-fields button { color: var(--tenant-secondary-on); }
 .tenant-site .public-footer { min-height: 88px; }
-@media (max-width: 900px) { .landing-hero { grid-template-columns: 1fr 240px; } .landing-shop-layout { grid-template-columns: 1fr; } .landing-selection { position: static; } .tenant-site.has-selection { padding-bottom: 75px; } .selection-mobile-bar { position: fixed; z-index: 20; right: 16px; bottom: 16px; left: 16px; display: flex; justify-content: space-between; padding: 14px 18px; border-radius: 11px; color: var(--tenant-primary-on); background: var(--tenant-primary); box-shadow: 0 12px 30px rgba(23, 36, 43, .25); font-size: .85rem; font-weight: 850; } }
-@media (max-width: 680px) { .tenant-site .page-width { width: min(100% - 32px, 560px); } .landing-nav { grid-template-columns: 1fr auto; min-height: 66px; } .landing-nav .nav-links { display: none; } .landing-nav .app-link { padding: 9px 10px; } .landing-hero { grid-template-columns: 1fr; gap: 28px; padding-block: 43px 50px; } .landing-brand-panel { padding: 18px; } .landing-brand-image { max-width: 160px; } .landing-brand-image img { max-height: 130px; } .landing-offers { padding-block: 48px 55px; } .landing-product-tools, .landing-product-grid { grid-template-columns: 1fr; } .landing-product-grid p { min-height: 0; } .landing-contact-heading { align-items: flex-start; flex-direction: column; } .landing-contact-links { justify-items: start; } .landing-contact .quote-form { padding: 17px; } }
+@media (max-width: 900px) { .landing-hero { grid-template-columns: 1fr; gap: 28px; } .landing-showcase-images, .landing-showcase-logo { height: 280px; } .landing-shop-layout { grid-template-columns: 1fr; } .landing-selection { position: static; } .tenant-site.has-selection { padding-bottom: 75px; } .selection-mobile-bar { position: fixed; z-index: 20; right: 16px; bottom: 16px; left: 16px; display: flex; justify-content: space-between; padding: 14px 18px; border-radius: 11px; color: var(--tenant-primary-on); background: var(--tenant-primary); box-shadow: 0 12px 30px rgba(23, 36, 43, .25); font-size: .85rem; font-weight: 850; } }
+@media (max-width: 680px) { .tenant-site .page-width { width: min(100% - 32px, 560px); } .landing-nav { grid-template-columns: 1fr auto; min-height: 66px; } .landing-nav .nav-links { display: none; } .landing-nav .app-link { padding: 9px 10px; } .landing-hero { padding-block: 38px 44px; } .landing-showcase-images, .landing-showcase-logo { height: 230px; } .landing-section-heading { align-items: flex-start; flex-direction: column; gap: 8px; } .landing-offers { padding-block: 45px 55px; } .landing-product-tools, .landing-product-grid { grid-template-columns: 1fr; } .landing-product-grid p { min-height: 0; } .landing-contact-heading { align-items: flex-start; flex-direction: column; } .landing-contact-links { justify-items: start; } .landing-contact .quote-form { padding: 17px; } }
 
 .centered-state, .private-shell, .login-shell { min-height: 100vh; padding: 40px max(24px, calc((100vw - 980px) / 2)); background: #f4f7f5; }
 .centered-state { display: grid; place-items: center; font-weight: 700; }
