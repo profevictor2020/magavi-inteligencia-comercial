@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import models
+from django.utils import timezone
 
 
 class QuoteRequest(models.Model):
@@ -52,6 +53,12 @@ class Quote(models.Model):
         DRAFT = "DRAFT", "Borrador"
         ISSUED = "ISSUED", "Emitida"
 
+    class FollowUpStatus(models.TextChoices):
+        UNSENT = "UNSENT", "Por enviar"
+        SENT = "SENT", "Enviada"
+        ACCEPTED = "ACCEPTED", "Aceptada"
+        REJECTED = "REJECTED", "Rechazada"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     number = models.PositiveIntegerField(editable=False)
     tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="quotes")
@@ -61,6 +68,11 @@ class Quote(models.Model):
     tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("19.00"))
     notes = models.TextField(blank=True, max_length=1500)
     issued_at = models.DateTimeField(null=True, blank=True)
+    follow_up_status = models.CharField(max_length=8, choices=FollowUpStatus.choices, default=FollowUpStatus.UNSENT)
+    next_contact_on = models.DateField(null=True, blank=True)
+    follow_up_notes = models.TextField(blank=True, max_length=1500)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -70,6 +82,13 @@ class Quote(models.Model):
     @property
     def folio(self) -> str:
         return f"COT-{self.number:06d}"
+
+    @property
+    def tracking_status(self) -> str:
+        if (self.status == self.Status.ISSUED and self.valid_until < timezone.localdate()
+                and self.follow_up_status in {self.FollowUpStatus.UNSENT, self.FollowUpStatus.SENT}):
+            return "EXPIRED"
+        return self.follow_up_status
 
     @property
     def subtotal(self) -> Decimal:

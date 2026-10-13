@@ -145,6 +145,7 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/inquiries/<uuid>/` | Privado | Consulta una solicitud; OWNER/ADMIN puede cambiar su estado |
 | `/api/inquiries/<uuid>/quote/` | Privado | Consulta la cotización; OWNER/ADMIN crea o actualiza su borrador |
 | `/api/inquiries/<uuid>/quote/issue/` | OWNER/ADMIN + CSRF | Emite y bloquea una cotización vigente |
+| `/api/inquiries/<uuid>/quote/follow-up/` | OWNER/ADMIN + CSRF | Registra estado, próximo contacto y notas de una cotización emitida |
 | `/api/inquiries/<uuid>/quote/print/` | Privado | Documento imprimible de una cotización emitida |
 | `/api/prospects/territories/` | Privado | Lista territorios y cobertura; OWNER/ADMIN puede crear |
 | `/api/prospects/territories/<uuid>/` | Privado | Consulta y administra un territorio del tenant actual |
@@ -176,9 +177,11 @@ La landing permite seleccionar productos publicados, indicar cantidades y enviar
 
 `OWNER` y `ADMIN` pueden abrir una solicitud desde su tarjeta y preparar una cotización, fijando precio unitario en pesos enteros, tasa de impuesto, vigencia y condiciones. El servidor calcula subtotal, impuesto redondeado al peso y total en CLP y conserva una copia de los productos y cantidades solicitados. Cada empresa recibe folios correlativos `COT-000001`, `COT-000002`, etc.; las cotizaciones anteriores reciben folio al aplicar la migración. La pantalla y el documento imprimible muestran montos chilenos sin centavos (`$24.990`). Si una cotización anterior ya tiene precios con centavos, se conservan en la base de datos y se muestran redondeados al peso. El borrador puede actualizarse; al emitirlo queda inmutable y disponible como documento imprimible o PDF mediante el navegador. `STAFF` y `VIEWER` pueden consultarlo, pero no modificarlo. La emisión no envía correos ni constituye aceptación del cliente; el equipo comercial comparte el documento por el canal acordado. La tasa de impuesto debe revisarse según los productos y el tratamiento tributario aplicable.
 
+La sección **Seguimiento** reúne las cotizaciones emitidas y permite filtrarlas por resultado o atención pendiente. `OWNER` y `ADMIN` pueden marcar manualmente una cotización como enviada, aceptada o rechazada, programar el próximo contacto y guardar notas. La fecha de envío se registra al marcarla como enviada; «vencida» se calcula automáticamente cuando termina su vigencia sin resultado final. Marcarla como enviada no envía correos. Los roles de lectura pueden consultar el seguimiento sin cambiarlo.
+
 ### Prospectos manuales
 
-El área privada usa un menú lateral para separar resumen, catálogo, prospectos, territorios, oportunidades y solicitudes. Permite registrar organizaciones potenciales con rubro, ubicación, contacto, fuente, fecha de verificación, observaciones y estado. La API aísla los registros por tenant y admite filtros por búsqueda, estado, rubro y ciudad. Al guardar, informa coincidencias potenciales por nombre, correo, teléfono o dominio, pero nunca fusiona registros automáticamente. Los territorios agrupan localidades, definen una meta de prospectos y muestran cobertura y cantidad revisada; cada prospecto puede asignarse a una de estas zonas.
+El área privada usa un menú lateral para separar resumen, catálogo, prospectos, territorios, oportunidades, solicitudes y seguimiento. Permite registrar organizaciones potenciales con rubro, ubicación, contacto, fuente, fecha de verificación, observaciones y estado. La API aísla los registros por tenant y admite filtros por búsqueda, estado, rubro y ciudad. Al guardar, informa coincidencias potenciales por nombre, correo, teléfono o dominio, pero nunca fusiona registros automáticamente. Los territorios agrupan localidades, definen una meta de prospectos y muestran cobertura y cantidad revisada; cada prospecto puede asignarse a una de estas zonas.
 
 ### Matching y oportunidades
 

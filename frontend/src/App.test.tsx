@@ -148,7 +148,7 @@ describe('multi-tenant application routes', () => {
 
   it('creates and issues a quote from an existing request', async () => {
     window.history.replaceState({}, '', '/app/')
-    const quote = { id: 'quote-12345678', folio: 'COT-000001', status: 'DRAFT', valid_until: '2099-01-01', tax_rate: '19.00', notes: '', issued_at: null, subtotal: '3000', tax_amount: '570', total: '3570', items: [{ request_item: 1, product_name: 'Café', product_sku: 'CAFE-1', quantity: 3, unit_price: '1000', line_total: '3000' }] }
+    const quote = { id: 'quote-12345678', folio: 'COT-000001', status: 'DRAFT', valid_until: '2099-01-01', tax_rate: '19.00', notes: '', issued_at: null, subtotal: '3000', tax_amount: '570', total: '3570', follow_up_status: 'UNSENT', tracking_status: 'UNSENT', next_contact_on: null, follow_up_notes: '', sent_at: null, responded_at: null, items: [{ request_item: 1, product_name: 'Café', product_sku: 'CAFE-1', quantity: 3, unit_price: '1000', line_total: '3000' }] }
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
@@ -169,6 +169,39 @@ describe('multi-tenant application routes', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/inquiries/request-1/quote/', expect.objectContaining({ method: 'POST', body: expect.stringContaining('"unit_price":"1000"') })))
     fireEvent.click(await screen.findByRole('button', { name: 'Emitir cotización' }))
     expect(await screen.findByRole('link', { name: 'Abrir documento para imprimir o guardar como PDF' })).toHaveAttribute('href', '/api/inquiries/request-1/quote/print/')
+  })
+
+  it('tracks an issued quote without sending it automatically', async () => {
+    window.history.replaceState({}, '', '/app/')
+    let quote = { id: 'quote-1', folio: 'COT-000001', status: 'ISSUED', valid_until: '2099-01-01', tax_rate: '19.00', notes: '', issued_at: '2026-10-13T12:00:00Z', subtotal: '3000', tax_amount: '570', total: '3570', follow_up_status: 'UNSENT', tracking_status: 'UNSENT', next_contact_on: null as string | null, follow_up_notes: '', sent_at: null as string | null, responded_at: null, items: [] }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      let payload: unknown
+      if (url.includes('/tenant/context/')) payload = { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+      else if (url.includes('/auth/session/')) payload = { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+      else if (url.includes('/quote/follow-up/')) {
+        const update = JSON.parse(String(init?.body)) as { follow_up_status: string; next_contact_on: string | null; follow_up_notes: string }
+        quote = { ...quote, ...update, tracking_status: update.follow_up_status, sent_at: '2026-10-13T12:00:00Z' }
+        payload = quote
+      } else if (url.endsWith('/inquiries/')) payload = [{ id: 'request-1', full_name: 'Cliente A', company_name: 'Negocio A', email: 'a@example.test', phone: '', message: '', status: 'NEW', quote, created_at: '2026-10-13T12:00:00Z', items: [] }]
+      else payload = []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Seguimiento/ }))
+    expect(await screen.findByRole('heading', { name: 'Seguimiento de cotizaciones', level: 2 })).toBeInTheDocument()
+    expect(screen.getByText('COT-000001')).toBeInTheDocument()
+    expect(screen.getByText('Por enviar', { selector: '.tracking-badge' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Registrar seguimiento' }))
+    fireEvent.change(screen.getByLabelText('Resultado del seguimiento'), { target: { value: 'SENT' } })
+    fireEvent.change(screen.getByLabelText('Próximo contacto'), { target: { value: '2099-01-02' } })
+    fireEvent.change(screen.getByLabelText('Notas de seguimiento'), { target: { value: 'Enviada por WhatsApp' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar seguimiento' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/inquiries/request-1/quote/follow-up/', expect.objectContaining({ method: 'PATCH', body: expect.stringContaining('"follow_up_status":"SENT"') })))
+    expect(await screen.findByText('Enviada', { selector: '.tracking-badge' })).toBeInTheDocument()
+    expect(screen.getByText('Seguimiento guardado.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Notas de seguimiento')).toHaveValue('Enviada por WhatsApp')
   })
 
   it('previews and confirms a CSV catalog import', async () => {
