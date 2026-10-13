@@ -176,18 +176,27 @@ function Brand({ name, logo }: { name: string; logo: string }) {
   )
 }
 
-function PublicQuoteForm({ products }: { products: PublicProduct[] }) {
-  const [phase, setPhase] = useState<'ready' | 'submitting' | 'success' | 'error'>('ready')
-  const [selectedProducts, setSelectedProducts] = useState<string[]>([])
+type SelectedProduct = { product: PublicProduct; quantity: number }
+
+function PublicQuoteForm({ selectedItems, onSuccess }: { selectedItems: SelectedProduct[]; onSuccess: () => void }) {
+  const [phase, setPhase] = useState<'ready' | 'submitting' | 'error'>('ready')
+  const [error, setError] = useState('')
 
   async function submitRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
     const data = new FormData(form)
-    if (selectedProducts.length === 0) {
+    if (selectedItems.length === 0) {
+      setError('Agrega al menos un producto a tu selección.')
       setPhase('error')
       return
     }
+    if (!String(data.get('email') || '').trim() && !String(data.get('phone') || '').trim()) {
+      setError('Ingresa un correo electrónico o teléfono para responderte.')
+      setPhase('error')
+      return
+    }
+    setError('')
     setPhase('submitting')
     const body = {
       full_name: data.get('full_name'),
@@ -197,9 +206,9 @@ function PublicQuoteForm({ products }: { products: PublicProduct[] }) {
       message: data.get('message'),
       website: data.get('website'),
       consent: data.get('consent') === 'on',
-      items: selectedProducts.map((product) => ({
-        product,
-        quantity: Number(data.get(`quantity-${product}`) || 1),
+      items: selectedItems.map(({ product, quantity }) => ({
+        product: product.id,
+        quantity,
       })),
     }
     try {
@@ -210,9 +219,9 @@ function PublicQuoteForm({ products }: { products: PublicProduct[] }) {
       })
       if (!response.ok) throw new Error('Request rejected')
       form.reset()
-      setSelectedProducts([])
-      setPhase('success')
+      onSuccess()
     } catch {
+      setError('No fue posible enviar la solicitud. Revisa tus datos e inténtalo nuevamente.')
       setPhase('error')
     }
   }
@@ -220,29 +229,51 @@ function PublicQuoteForm({ products }: { products: PublicProduct[] }) {
   return (
     <form className="quote-form" onSubmit={submitRequest} aria-label="Solicitud de cotización">
       <div className="quote-products">
-        <strong>Selecciona los productos</strong>
-        {products.map((product) => {
-          const selected = selectedProducts.includes(product.id)
-          return <div className={`quote-product ${selected ? 'is-selected' : ''}`} key={product.id}><label><input type="checkbox" value={product.id} checked={selected} onChange={(event) => setSelectedProducts((current) => event.target.checked ? [...current, product.id] : current.filter((id) => id !== product.id))} /><span><strong>{product.name}</strong><small>{product.format || product.category}</small></span></label>{selected && <label className="quantity-label">Cantidad<input name={`quantity-${product.id}`} type="number" min="1" max="100000" defaultValue="1" required /></label>}</div>
-        })}
+        <span className="eyebrow">TU SOLICITUD</span>
+        <h3>Productos elegidos</h3>
+        <ul>{selectedItems.map(({ product, quantity }) => <li key={product.id}><span>{product.name}</span><strong>× {quantity}</strong></li>)}</ul>
+        <a href="#mi-seleccion">Modificar mi selección</a>
       </div>
       <div className="quote-fields">
+        <h3>Datos de contacto</h3>
         <label>Nombre completo<input name="full_name" maxLength={160} required /></label>
         <label>Empresa<input name="company_name" maxLength={160} /></label>
         <div className="form-row"><label>Correo electrónico<input name="email" type="email" /></label><label>Teléfono<input name="phone" maxLength={40} /></label></div>
+        <small className="quote-contact-hint">Ingresa al menos uno de estos datos para que podamos responderte.</small>
         <label>Mensaje<textarea name="message" maxLength={1500} /></label>
         <label className="honeypot" aria-hidden="true">Sitio web<input name="website" tabIndex={-1} autoComplete="off" /></label>
         <label className="consent-field"><input name="consent" type="checkbox" required /> Autorizo que esta empresa me contacte para responder mi solicitud.</label>
-        {phase === 'success' && <p className="quote-success" role="status">Solicitud enviada. El equipo comercial se pondrá en contacto contigo.</p>}
-        {phase === 'error' && <p className="quote-error" role="alert">No fue posible enviar la solicitud. Selecciona un producto, completa tus datos e inténtalo nuevamente.</p>}
-        <button type="submit" disabled={phase === 'submitting' || products.length === 0}>{phase === 'submitting' ? 'Enviando…' : 'Enviar solicitud'}</button>
+        {phase === 'error' && <p className="quote-error" role="alert">{error}</p>}
+        <button type="submit" disabled={phase === 'submitting' || selectedItems.length === 0}>{phase === 'submitting' ? 'Enviando…' : 'Enviar solicitud'}</button>
       </div>
     </form>
   )
 }
 
+function SelectionPanel({ items, onQuantityChange, onRemove, onQuote }: {
+  items: SelectedProduct[]
+  onQuantityChange: (productId: string, quantity: number) => void
+  onRemove: (productId: string) => void
+  onQuote: () => void
+}) {
+  return <aside className="landing-selection" id="mi-seleccion" aria-labelledby="selection-title">
+    <div className="selection-heading"><span className="eyebrow">TU PEDIDO</span><h3 id="selection-title">Mi selección</h3><p aria-live="polite">{items.length} producto{items.length === 1 ? '' : 's'} elegido{items.length === 1 ? '' : 's'}</p></div>
+    {items.length === 0 ? <p className="selection-empty">Agrega productos del catálogo para preparar tu solicitud.</p> : <ul className="selection-items">{items.map(({ product, quantity }) => <li key={product.id}><div><strong>{product.name}</strong><small>{product.format || product.category}</small></div><label>Cantidad<input type="number" inputMode="numeric" min="1" max="100000" value={quantity} aria-label={`Cantidad de ${product.name}`} onChange={(event) => onQuantityChange(product.id, Math.min(100000, Math.max(1, Math.trunc(Number(event.target.value)) || 1)))} /></label><button type="button" onClick={() => onRemove(product.id)} aria-label={`Quitar ${product.name}`}>Quitar</button></li>)}</ul>}
+    <button className="selection-quote-button" type="button" disabled={items.length === 0} onClick={onQuote}>Solicitar cotización <span aria-hidden="true">→</span></button>
+    <small className="selection-note">La empresa confirmará precio y condiciones al responder tu solicitud.</small>
+  </aside>
+}
+
+const normalizeProductSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es-CL').trim()
+
 function PublicLanding() {
   const [state, setState] = useState<LoadState<LandingData>>({ phase: 'loading' })
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('')
+  const [visibleCount, setVisibleCount] = useState(12)
+  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({})
+  const [quoteOpen, setQuoteOpen] = useState(false)
+  const [requestSent, setRequestSent] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -258,6 +289,10 @@ function PublicLanding() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    if (quoteOpen) document.getElementById('cotizar')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [quoteOpen])
+
   if (state.phase === 'loading') {
     return <main className="centered-state" role="status">Preparando la experiencia…</main>
   }
@@ -266,6 +301,30 @@ function PublicLanding() {
   }
 
   const tenant = state.data
+  const categories = [...new Set(tenant.products.map((product) => product.category))].sort((a, b) => a.localeCompare(b, 'es-CL'))
+  const normalizedSearch = normalizeProductSearch(search)
+  const filteredProducts = tenant.products.filter((product) => (!category || product.category === category) && (!normalizedSearch || normalizeProductSearch(`${product.name} ${product.sku} ${product.description} ${product.category}`).includes(normalizedSearch)))
+  const visibleProducts = filteredProducts.slice(0, visibleCount)
+  const selectedItems = tenant.products.filter((product) => selectedQuantities[product.id]).map((product) => ({ product, quantity: selectedQuantities[product.id] }))
+
+  function addProduct(productId: string) {
+    setSelectedQuantities((current) => ({ ...current, [productId]: current[productId] || 1 }))
+    setRequestSent(false)
+  }
+
+  function removeProduct(productId: string) {
+    setSelectedQuantities((current) => {
+      const next = { ...current }
+      delete next[productId]
+      return next
+    })
+  }
+
+  function startQuote() {
+    if (selectedItems.length === 0) return
+    setQuoteOpen(true)
+    setRequestSent(false)
+  }
   const theme = {
     '--tenant-primary': tenant.theme.primary,
     '--tenant-secondary': tenant.theme.secondary,
@@ -275,7 +334,7 @@ function PublicLanding() {
   } as CSSProperties
 
   return (
-    <main className="tenant-site" style={theme}>
+    <main className={`tenant-site ${selectedItems.length > 0 && !quoteOpen ? 'has-selection' : ''}`} style={theme}>
       <header className="site-header">
         <nav className="public-nav landing-nav page-width" aria-label="Navegación pública">
           <Brand name={tenant.name} logo={tenant.logo_path} />
@@ -289,7 +348,7 @@ function PublicLanding() {
           <span className="eyebrow">{tenant.is_demo ? 'SITIO DEMOSTRATIVO' : tenant.name.toLocaleUpperCase('es-CL')}</span>
           <h1>{tenant.headline}</h1>
           {tenant.description && <p>{tenant.description}</p>}
-          <div className="landing-hero-actions"><a className="landing-main-action" href="#productos">Explorar productos <span aria-hidden="true">→</span></a><a className="landing-text-action" href={tenant.products.length ? '#cotizar' : '#contacto'}>{tenant.products.length ? 'Solicitar cotización' : 'Contáctanos'}</a></div>
+          <div className="landing-hero-actions"><a className="landing-main-action" href="#productos">Explorar productos <span aria-hidden="true">→</span></a><a className="landing-text-action" href={tenant.products.length ? '#mi-seleccion' : '#contacto'}>{tenant.products.length ? 'Ver mi selección' : 'Contáctanos'}</a></div>
         </div>
         <div className="landing-brand-panel"><div className="landing-brand-image"><img src={tenant.logo_path} alt={`Logo de ${tenant.name}`} /></div><span>Explora los productos de {tenant.name}</span></div>
       </section>
@@ -297,10 +356,12 @@ function PublicLanding() {
       <section className="landing-offers page-width" id="productos" aria-labelledby="offerings-title">
         <div className="landing-section-heading"><span className="eyebrow">CATÁLOGO</span><h2 id="offerings-title">Productos</h2><p>Explora nuestra selección y cuéntanos qué necesitas.</p></div>
         {tenant.products.length === 0 && <p className="landing-empty-offer">Estamos preparando nuestro catálogo. Escríbenos y te ayudaremos a encontrar lo que buscas.</p>}
-        {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'} disponible{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-grid">{tenant.products.map((product) => <article key={product.id}><div className="landing-product-image">{product.image_path ? <img src={product.image_path} alt={product.name} loading="lazy" /> : <span>Imagen próximamente</span>}</div><div className="landing-product-detail"><span className="landing-product-category">{product.category}</span><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="landing-product-footer">{product.format && <span>{product.format}</span>}<strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div></div></article>)}</div></div>}
+        {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'} disponible{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-tools"><label>Buscar productos<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setVisibleCount(12) }} placeholder="Nombre o código del producto" /></label><label>Categoría<select value={category} onChange={(event) => { setCategory(event.target.value); setVisibleCount(12) }}><option value="">Todas las categorías</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div><div className="landing-shop-layout"><div><p className="landing-result-count" role="status">{filteredProducts.length} resultado{filteredProducts.length === 1 ? '' : 's'}</p>{filteredProducts.length === 0 ? <div className="landing-no-results"><p>No encontramos productos con esos filtros.</p><button type="button" onClick={() => { setSearch(''); setCategory(''); setVisibleCount(12) }}>Limpiar búsqueda</button></div> : <><div className="landing-product-grid">{visibleProducts.map((product) => <article key={product.id}><div className="landing-product-image">{product.image_path ? <img src={product.image_path} alt={product.name} loading="lazy" /> : <span>Imagen próximamente</span>}</div><div className="landing-product-detail"><span className="landing-product-category">{product.category}</span><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="landing-product-footer">{product.format && <span>{product.format}</span>}<strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div><button type="button" className="landing-add-product" disabled={Boolean(selectedQuantities[product.id])} onClick={() => addProduct(product.id)}>{selectedQuantities[product.id] ? 'Agregado a mi selección ✓' : 'Agregar a mi selección'}</button></div></article>)}</div>{visibleCount < filteredProducts.length && <button type="button" className="landing-show-more" onClick={() => setVisibleCount((count) => count + 12)}>Mostrar más productos</button>}</>}</div><SelectionPanel items={selectedItems} onQuantityChange={(productId, quantity) => setSelectedQuantities((current) => ({ ...current, [productId]: quantity }))} onRemove={removeProduct} onQuote={startQuote} /></div></div>}
       </section>
 
-      <section className="landing-contact" id="contacto"><div className="page-width"><div className="landing-contact-heading"><div><span className="eyebrow">HABLEMOS</span><h2>Conversemos sobre lo que necesitas.</h2></div><div className="landing-contact-links">{tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}{tenant.contact.phone && <a href={`tel:${tenant.contact.phone}`}>{tenant.contact.phone}</a>}</div></div>{tenant.products.length > 0 && <div id="cotizar"><PublicQuoteForm products={tenant.products} /></div>}</div></section>
+      <section className="landing-contact" id="contacto"><div className="page-width"><div className="landing-contact-heading"><div><span className="eyebrow">HABLEMOS</span><h2>Conversemos sobre lo que necesitas.</h2></div><div className="landing-contact-links">{tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}{tenant.contact.phone && <a href={`tel:${tenant.contact.phone}`}>{tenant.contact.phone}</a>}</div></div>{requestSent && <p className="quote-success landing-request-success" role="status">Solicitud enviada. El equipo comercial se pondrá en contacto contigo.</p>}{quoteOpen && selectedItems.length > 0 && <div id="cotizar"><PublicQuoteForm selectedItems={selectedItems} onSuccess={() => { setSelectedQuantities({}); setQuoteOpen(false); setRequestSent(true) }} /></div>}</div></section>
+
+      {selectedItems.length > 0 && !quoteOpen && <a className="selection-mobile-bar" href="#mi-seleccion">Mi selección · {selectedItems.length} producto{selectedItems.length === 1 ? '' : 's'} <span aria-hidden="true">↑</span></a>}
 
       <footer className="public-footer page-width"><Brand name={tenant.name} logo={tenant.logo_path} /><span>{tenant.is_demo ? 'Contenido sintético de demostración' : 'Sitio impulsado por MAGAVI'}</span></footer>
     </main>
