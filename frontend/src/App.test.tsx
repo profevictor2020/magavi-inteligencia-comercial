@@ -230,7 +230,8 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('heading', { name: 'Crear agrupación' })).toBeInTheDocument()
     fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Importación/ }))
     expect(screen.getByRole('heading', { name: 'Carga masiva de productos' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Importar productos desde CSV' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Descargar plantilla Excel/ })).toHaveAttribute('href', '/api/catalog/import/template/')
+    expect(screen.getByLabelText('Archivo Excel (.xlsx) o CSV')).toHaveAttribute('accept', expect.stringContaining('.xlsx'))
     fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Reglas comerciales/ }))
     expect(screen.getByRole('heading', { name: 'Segmentación para oportunidades' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: 'Restaurantes, restobares y cafeterías' })).toBeInTheDocument()
@@ -390,7 +391,7 @@ describe('multi-tenant application routes', () => {
 
     fireEvent.click(await within(await screen.findByRole('navigation', { name: 'Administración de la empresa' })).getByRole('button', { name: /Catálogo/ }))
     fireEvent.click(within(screen.getByRole('navigation', { name: 'Secciones del catálogo' })).getByRole('button', { name: /Importación/ }))
-    const fileInput = await screen.findByLabelText('Archivo CSV')
+    const fileInput = await screen.findByLabelText('Archivo Excel (.xlsx) o CSV')
     const csv = new File(['sku,nombre,categoria,descripcion,formato,precio,disponible,publicar\nNEW-1,Producto importado,Abarrotes,,Caja,100,sí,no\n'], 'catalogo.csv', { type: 'text/csv' })
     fireEvent.change(fileInput, { target: { files: [csv] } })
     fireEvent.submit(fileInput.closest('form') as HTMLFormElement)
