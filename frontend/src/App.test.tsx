@@ -175,6 +175,32 @@ describe('multi-tenant application routes', () => {
     expect(document.getElementById('order-order-1')).toHaveTextContent('PED-000001')
   })
 
+  it('links an order to a matching request and updates measured conversion', async () => {
+    window.history.replaceState({}, '', '/app/')
+    const inquiry = { id: 'request-1', full_name: 'Cliente de prueba', company_name: '', email: 'cliente@example.test', phone: '', message: '', status: 'CLOSED', items: [], quote: null, created_at: '2026-10-12T12:00:00Z' }
+    const order = { id: 'order-1', folio: 'PED-000001', full_name: 'Cliente de prueba', company_name: '', email: 'CLIENTE@example.test', phone: '', delivery_method: 'PICKUP', delivery_address: '', notes: '', status: 'COMPLETED', source_request: null, items: [{ product_name: 'Café premium', product_sku: 'CAFE-001', quantity: 2, unit_price: 24990, line_total: 49980 }], total: 49980, created_at: '2026-10-13T12:00:00Z' }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.endsWith('/inquiries/orders/') ? [order]
+            : url.endsWith('/inquiries/') ? [inquiry]
+              : url.includes('/inquiries/orders/order-1/') ? { ...order, source_request: 'request-1' } : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const dashboard = await screen.findByRole('region', { name: 'Tablero de prioridades comerciales' })
+    expect(within(dashboard).getByText('0 de 1 solicitudes, solo pedidos vinculados y completados')).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Pedidos/ }))
+    fireEvent.change(screen.getByLabelText('Solicitud de origen'), { target: { value: 'request-1' } })
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/inquiries/orders/order-1/', expect.objectContaining({ method: 'PATCH', body: '{"source_request":"request-1"}' })))
+    await waitFor(() => expect(screen.getByLabelText('Solicitud de origen')).toHaveValue('request-1'))
+    fireEvent.click(nav.getByRole('button', { name: 'Resumen' }))
+    expect(await screen.findByText('1 de 1 solicitudes, solo pedidos vinculados y completados')).toBeInTheDocument()
+    expect(screen.getByText('$49.980')).toBeInTheDocument()
+  })
+
   it('filters a larger catalog while keeping the selected products', async () => {
     const products = [companyA.products[0], ...Array.from({ length: 13 }, (_, index) => ({ ...companyA.products[0], id: `product-${index + 2}`, name: `Producto ${index + 2}`, description: 'Repostería artesanal', sku: `P-${index + 2}`, category: 'Repostería' }))]
     mockJson({ ...companyA, products })

@@ -12,10 +12,10 @@ class PurchaseOrderItemInline(admin.TabularInline):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(admin.ModelAdmin):
-    list_display = ("folio", "full_name", "tenant", "status", "delivery_method", "created_at")
+    list_display = ("folio", "full_name", "tenant", "source_request", "status", "delivery_method", "created_at")
     list_filter = ("status", "tenant")
     search_fields = ("full_name", "company_name", "email", "phone")
-    readonly_fields = ("tenant", "number", "full_name", "company_name", "email", "phone", "delivery_method", "delivery_address", "notes", "consent_at", "created_at", "updated_at")
+    readonly_fields = ("tenant", "number", "source_request", "full_name", "company_name", "email", "phone", "delivery_method", "delivery_address", "notes", "consent_at", "created_at", "updated_at")
     inlines = (PurchaseOrderItemInline,)
 
     def has_add_permission(self, request):

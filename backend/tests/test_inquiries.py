@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.catalog.models import Category, Product
@@ -176,6 +177,34 @@ def test_purchase_status_permissions_and_tenant_isolation(inquiry_context):
     assert updated.json()["status"] == "CONFIRMED"
     assert authenticated_client(owner).get(url, HTTP_HOST="inquiry-b.localhost").status_code == 403
     assert APIClient().get(reverse("purchase-order-list"), HTTP_HOST="inquiry-a.localhost").status_code == 403
+
+
+@pytest.mark.django_db
+def test_owner_links_order_to_matching_request_only_within_tenant(inquiry_context):
+    tenant_a, tenant_b, _, _, owner, viewer = inquiry_context
+    matching = QuoteRequest.objects.create(tenant=tenant_a, full_name="Cliente", email="COMPRADOR@example.test", consent_at="2026-01-01T00:00:00Z")
+    other_contact = QuoteRequest.objects.create(tenant=tenant_a, full_name="Otro", email="otro@example.test", consent_at="2026-01-01T00:00:00Z")
+    foreign = QuoteRequest.objects.create(tenant=tenant_b, full_name="Ajeno", email="comprador@example.test", consent_at="2026-01-01T00:00:00Z")
+    order = PurchaseOrder.objects.create(
+        tenant=tenant_a, number=1, full_name="Cliente de compra", email="comprador@example.test",
+        delivery_method=PurchaseOrder.DeliveryMethod.COORDINATE, consent_at=timezone.now(),
+    )
+    later = QuoteRequest.objects.create(tenant=tenant_a, full_name="Cliente", email="comprador@example.test", consent_at=timezone.now())
+    url = reverse("purchase-order-detail", args=[order.id])
+    owner_client = authenticated_client(owner)
+    for source in (other_contact, foreign, later):
+        response = owner_client.patch(url, {"source_request": str(source.id)}, format="json", HTTP_HOST="inquiry-a.localhost")
+        assert response.status_code == 400
+    assert authenticated_client(viewer).patch(url, {"source_request": str(matching.id)}, format="json", HTTP_HOST="inquiry-a.localhost").status_code == 403
+    linked = owner_client.patch(url, {"source_request": str(matching.id)}, format="json", HTTP_HOST="inquiry-a.localhost")
+    assert linked.status_code == 200
+    assert linked.json()["source_request"] == str(matching.id)
+    assert owner_client.get(reverse("purchase-order-list"), HTTP_HOST="inquiry-a.localhost").json()[0]["source_request"] == str(matching.id)
+    unlinked = owner_client.patch(url, {"source_request": None}, format="json", HTTP_HOST="inquiry-a.localhost")
+    assert unlinked.status_code == 200
+    assert unlinked.json()["source_request"] is None
+    order.refresh_from_db()
+    assert order.source_request is None
 
 
 @pytest.mark.django_db
