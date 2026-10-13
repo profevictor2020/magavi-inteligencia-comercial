@@ -5,6 +5,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from openpyxl import Workbook, load_workbook
 from PIL import Image
 from rest_framework.test import APIClient
 
@@ -48,6 +49,18 @@ def authenticated_client(user):
 def catalog_csv(*rows):
     header = "sku,nombre,categoria,descripcion,formato,precio,disponible,publicar\n"
     return SimpleUploadedFile("catalogo.csv", (header + "\n".join(rows) + "\n").encode(), content_type="text/csv")
+
+
+def catalog_xlsx(*rows, headers=("sku", "nombre", "categoria", "descripcion", "formato", "precio", "disponible", "publicar")):
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Productos"
+    sheet.append(headers)
+    for row in rows:
+        sheet.append(row)
+    output = BytesIO()
+    workbook.save(output)
+    return SimpleUploadedFile("catalogo.xlsx", output.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 def product_png():
@@ -358,10 +371,77 @@ def test_import_preview_token_cannot_cross_tenants(catalog_context):
 
 
 @pytest.mark.django_db
-def test_catalog_csv_template_has_expected_headers(catalog_context):
+def test_catalog_xlsx_template_has_blank_products_sheet_and_instructions(catalog_context):
     _, _, owner, _, _, _ = catalog_context
     response = authenticated_client(owner).get(reverse("catalog-import-template"), HTTP_HOST="catalog-a.localhost")
 
     assert response.status_code == 200
-    assert response["Content-Disposition"] == 'attachment; filename="plantilla-catalogo.csv"'
-    assert response.content.decode().splitlines()[0] == "sku,nombre,categoria,descripcion,formato,precio,disponible,publicar"
+    assert response["Content-Disposition"] == 'attachment; filename="plantilla-catalogo.xlsx"'
+    workbook = load_workbook(BytesIO(response.content))
+    assert workbook.sheetnames == ["Productos", "Cómo completar"]
+    assert [cell.value for cell in workbook["Productos"][1]] == ["sku", "nombre", "categoria", "descripcion", "formato", "precio", "disponible", "publicar"]
+    assert workbook["Productos"]["A2"].value is None
+    assert workbook["Productos"]["G2"].value is None
+
+
+@pytest.mark.django_db
+def test_xlsx_preview_skips_blank_rows_and_imports_pesos(catalog_context):
+    tenant_a, _, owner, _, _, _ = catalog_context
+    client = authenticated_client(owner)
+    upload = catalog_xlsx(
+        (None, None, None, None, None, None, None, None),
+        ("MAR-001", "Camarón premium", "Mariscos", "Congelado", "Caja 10 kg", 24990, "sí", "no"),
+    )
+    preview = client.post(reverse("catalog-import-preview"), {"file": upload}, format="multipart", HTTP_HOST="catalog-a.localhost")
+    assert preview.status_code == 200
+    assert preview.json()["valid"] is True
+    assert preview.json()["summary"]["total"] == 1
+    assert preview.json()["rows"][0]["row"] == 3
+    assert preview.json()["rows"][0]["price"] == "24990.00"
+    assert Product.objects.count() == 0
+    confirmed = client.post(reverse("catalog-import-confirm"), {"token": preview.json()["token"]}, format="json", HTTP_HOST="catalog-a.localhost")
+    assert confirmed.status_code == 200
+    assert Product.objects.get(tenant=tenant_a, sku="MAR-001").price == Decimal("24990.00")
+
+
+@pytest.mark.django_db
+def test_xlsx_rejects_formulas_and_wrong_columns(catalog_context):
+    _, _, owner, _, _, _ = catalog_context
+    client = authenticated_client(owner)
+    formula = catalog_xlsx(("MAR-002", "=1+1", "Mariscos", "", "Caja", 15000, "sí", "no"))
+    preview = client.post(reverse("catalog-import-preview"), {"file": formula}, format="multipart", HTTP_HOST="catalog-a.localhost")
+    assert preview.status_code == 200
+    assert preview.json()["valid"] is False
+    assert preview.json()["token"] is None
+    assert "fórmulas" in preview.json()["rows"][0]["errors"][0]
+    wrong_headers = catalog_xlsx(("MAR-003", "Atún", "Pescados", "", "Caja", 15000, "sí", "no"), headers=("codigo", "nombre", "categoria", "descripcion", "formato", "precio", "disponible", "publicar"))
+    rejected = client.post(reverse("catalog-import-preview"), {"file": wrong_headers}, format="multipart", HTTP_HOST="catalog-a.localhost")
+    assert rejected.status_code == 400
+    assert Product.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_downloaded_xlsx_template_can_be_filled_and_previewed(catalog_context):
+    _, _, owner, _, _, _ = catalog_context
+    client = authenticated_client(owner)
+    template = client.get(reverse("catalog-import-template"), HTTP_HOST="catalog-a.localhost")
+    workbook = load_workbook(BytesIO(template.content))
+    sheet = workbook["Productos"]
+    for column, value in enumerate(("ATU-001", "Atún en trozos", "Pescados", "Congelado", "Caja 20", 15990, "sí", "no"), start=1):
+        sheet.cell(2, column).value = value
+    output = BytesIO()
+    workbook.save(output)
+    upload = SimpleUploadedFile("plantilla-catalogo.xlsx", output.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    preview = client.post(reverse("catalog-import-preview"), {"file": upload}, format="multipart", HTTP_HOST="catalog-a.localhost")
+    assert preview.status_code == 200
+    assert preview.json()["valid"] is True
+    assert preview.json()["summary"]["total"] == 1
+
+
+@pytest.mark.django_db
+def test_corrupt_xlsx_has_clear_error(catalog_context):
+    _, _, owner, _, _, _ = catalog_context
+    upload = SimpleUploadedFile("roto.xlsx", b"no es excel", content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response = authenticated_client(owner).post(reverse("catalog-import-preview"), {"file": upload}, format="multipart", HTTP_HOST="catalog-a.localhost")
+    assert response.status_code == 400
+    assert "Excel no es válido" in response.json()["detail"]

@@ -16,7 +16,7 @@ from apps.tenancy.permissions import TenantRolePermission
 
 from .models import Category, IndustrySegment, Product, ProductImage
 from .serializers import CategorySerializer, ProductSerializer
-from .imports import CatalogImportError, confirm_preview, csv_template, preview_csv, save_preview
+from .imports import CatalogImportError, confirm_preview, preview_catalog, save_preview, xlsx_template
 
 
 class TenantCatalogMixin:
@@ -140,8 +140,8 @@ class CatalogTemplateView(APIView):
     permission_classes = [TenantRolePermission]
 
     def get(self, request):
-        response = HttpResponse(csv_template(), content_type="text/csv; charset=utf-8")
-        response["Content-Disposition"] = 'attachment; filename="plantilla-catalogo.csv"'
+        response = HttpResponse(xlsx_template(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = 'attachment; filename="plantilla-catalogo.xlsx"'
         return response
 
 
@@ -152,9 +152,9 @@ class CatalogImportPreviewView(APIView):
     def post(self, request):
         uploaded_file = request.FILES.get("file")
         if uploaded_file is None:
-            return Response({"detail": "Selecciona un archivo CSV."}, status=400)
+            return Response({"detail": "Selecciona un archivo Excel .xlsx o CSV."}, status=400)
         try:
-            preview = preview_csv(uploaded_file, request.tenant)
+            preview = preview_catalog(uploaded_file, request.tenant)
         except CatalogImportError as exc:
             return Response({"detail": str(exc)}, status=400)
         token = None

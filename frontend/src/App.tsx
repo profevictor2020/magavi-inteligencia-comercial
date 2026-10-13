@@ -463,10 +463,10 @@ function CatalogImportPanel({ csrfToken, onConfirmed }: { csrfToken: string; onC
   }
 
   return (
-    <section className="catalog-import" aria-label="Importar productos desde CSV">
-      <p>Completa la plantilla y revisa los cambios antes de aplicarlos. Una nueva carga actualiza productos con el mismo SKU sin duplicarlos.</p>
+    <section className="catalog-import" aria-label="Importar productos desde Excel">
+      <p>Completa la hoja «Productos» en Excel, guarda el archivo como .xlsx y revísalo antes de aplicar los cambios. Si ya tienes un CSV, también puedes subirlo. Una nueva carga actualiza productos con el mismo SKU sin duplicarlos. Las fotos se agregan después en Marketing.</p>
       <form className="import-form" onSubmit={previewFile}>
-        <label>Archivo CSV<input name="file" type="file" accept=".csv,text/csv" required /></label>
+        <label>Archivo Excel (.xlsx) o CSV<input name="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.csv,text/csv" required /></label>
         <button type="submit" disabled={!csrfToken || phase !== 'ready'}>{phase === 'previewing' ? 'Revisando…' : 'Revisar archivo'}</button>
       </form>
       {error && <p className="catalog-error" role="alert">{error}</p>}
@@ -1128,7 +1128,7 @@ function PrivateApp() {
           </div>}
 
           {catalogSection === 'import' && <div className="catalog-module import-module">
-            <header className="module-heading import-module-heading"><div><span className="eyebrow">IMPORTACIÓN</span><h2>Carga masiva de productos</h2><p>Descarga la plantilla, revisa los cambios y confirma solo cuando el archivo esté correcto.</p></div><a className="template-link" href="/api/catalog/import/template/">Descargar plantilla CSV ↓</a></header>
+            <header className="module-heading import-module-heading"><div><span className="eyebrow">IMPORTACIÓN</span><h2>Carga masiva de productos</h2><p>Descarga la plantilla Excel, complétala y confirma la importación después de revisar los cambios.</p></div><a className="template-link" href="/api/catalog/import/template/">Descargar plantilla Excel ↓</a></header>
             {canEdit ? <CatalogImportPanel csrfToken={csrfToken} onConfirmed={refreshCatalog} /> : <p className="empty-catalog">Tu rol tiene acceso de lectura y no puede ejecutar importaciones.</p>}
           </div>}
 

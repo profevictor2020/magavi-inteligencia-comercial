@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación CSV revisable, solicitudes públicas de contacto/cotización, pedidos con pago por coordinar, cotizaciones emitibles desde esas solicitudes, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía pago en línea ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación Excel/CSV revisable, solicitudes públicas de contacto/cotización, pedidos con pago por coordinar, cotizaciones emitibles desde esas solicitudes, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía pago en línea ni inteligencia artificial.**
 
 ## Arquitectura
 
@@ -139,8 +139,8 @@ Los dos primeros hostnames muestran landings distintas. Un hostname desconocido 
 | `/api/catalog/products/` | Privado | Lista/crea productos del tenant actual |
 | `/api/catalog/products/<uuid>/` | Privado | Consulta/edita/elimina y publica un producto del tenant actual |
 | `/api/catalog/industry-segments/` | Privado | Entrega la taxonomía canónica de industrias usada por productos y prospectos |
-| `/api/catalog/import/template/` | Privado | Descarga la plantilla CSV oficial |
-| `/api/catalog/import/preview/` | OWNER/ADMIN + CSRF | Valida un CSV y genera una vista previa temporal |
+| `/api/catalog/import/template/` | Privado | Descarga la plantilla Excel `.xlsx` con hoja de ayuda |
+| `/api/catalog/import/preview/` | OWNER/ADMIN + CSRF | Valida un Excel `.xlsx` o CSV y genera una vista previa temporal |
 | `/api/catalog/import/confirm/` | OWNER/ADMIN + CSRF | Confirma transaccionalmente una vista previa válida |
 | `/api/inquiries/public/` | Público limitado | Registra una solicitud para productos publicados del tenant actual |
 | `/api/inquiries/orders/public/` | Público limitado | Registra un pedido de productos publicados con precio en pesos enteros |
@@ -182,7 +182,7 @@ La portada de la landing usa los colores configurados por la empresa y destaca h
 
 El área privada permite crear categorías y productos, registrar SKU, formato, precio y disponibilidad. Solo `OWNER` y `ADMIN` pueden modificar el catálogo; `STAFF` y `VIEWER` conservan acceso de lectura. La API asigna siempre el tenant desde el hostname resuelto, no desde datos enviados por el navegador, y rechaza categorías pertenecientes a otra empresa. La landing expone únicamente productos publicados, disponibles y asociados a categorías activas.
 
-La carga masiva usa la plantilla CSV descargable con las columnas `sku,nombre,categoria,descripcion,formato,precio,disponible,publicar`. El archivo se valida en memoria y muestra acciones, advertencias y errores antes de modificar la base. Una vista previa válida queda asociada temporalmente a la sesión y al tenant; al confirmarla, Django crea o actualiza por SKU dentro de una sola transacción. Repetir una carga actualiza los productos existentes, no elimina productos ausentes y no genera duplicados.
+La carga masiva descarga una plantilla Excel `.xlsx` con la hoja **Productos** y una guía de llenado. Las columnas son `sku,nombre,categoria,descripcion,formato,precio,disponible,publicar`; el importador también admite archivos CSV existentes. El archivo se valida en memoria y muestra acciones, advertencias y errores antes de modificar la base. Una vista previa válida queda asociada temporalmente a la sesión y al tenant; al confirmarla, Django crea o actualiza por SKU dentro de una sola transacción. Repetir una carga actualiza los productos existentes, no elimina productos ausentes y no genera duplicados.
 
 ### Solicitudes comerciales
 
