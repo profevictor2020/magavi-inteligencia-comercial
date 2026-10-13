@@ -65,15 +65,15 @@ class TenantPrivateSerializer(serializers.ModelSerializer):
             "featured_offerings",
             "role",
         )
-        read_only_fields = ("id", "slug", "name", "logo_path", "role")
+        read_only_fields = ("id", "slug", "logo_path", "role")
 
     def get_role(self, obj):
         membership = getattr(self.context["request"], "_tenant_membership", None)
         return membership.role if membership else None
 
     def validate(self, attrs):
-        if {"primary_color", "secondary_color"} & attrs.keys():
+        if {"name", "primary_color", "secondary_color"} & attrs.keys():
             membership = getattr(self.context["request"], "_tenant_membership", None)
             if membership is None or membership.role != Membership.Role.OWNER:
-                raise serializers.ValidationError("Solo el propietario puede cambiar los colores de la empresa.")
+                raise serializers.ValidationError("Solo el propietario puede cambiar el nombre y los colores de la empresa.")
         return attrs

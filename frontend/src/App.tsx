@@ -546,6 +546,7 @@ function QuoteFollowUpCard({ inquiry, quote, canEdit, csrfToken, onSaved }: {
 }
 
 function BrandSettingsPanel({ tenant, csrfToken, onSaved }: { tenant: TenantContext; csrfToken: string; onSaved: (tenant: TenantContext) => void }) {
+  const [name, setName] = useState(tenant.name)
   const [primary, setPrimary] = useState(tenant.primary_color)
   const [secondary, setSecondary] = useState(tenant.secondary_color)
   const [email, setEmail] = useState(tenant.contact_email)
@@ -558,13 +559,14 @@ function BrandSettingsPanel({ tenant, csrfToken, onSaved }: { tenant: TenantCont
   async function saveBrand(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
+    if (!name.trim()) { setError('Escribe el nombre de la empresa.'); return }
     if (!colorPattern.test(primary) || !colorPattern.test(secondary)) { setError('Usa colores hexadecimales de seis dígitos.'); return }
     setBusy(true); setError(''); setMessage('')
     try {
-      const response = await fetch('/api/tenant/context/', { method: 'PATCH', credentials: 'same-origin', headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify({ primary_color: primary, secondary_color: secondary, contact_email: email }) })
-      if (!response.ok) throw new Error('No fue posible guardar los colores y el correo.')
+      const response = await fetch('/api/tenant/context/', { method: 'PATCH', credentials: 'same-origin', headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify({ name: name.trim(), primary_color: primary, secondary_color: secondary, contact_email: email }) })
+      if (!response.ok) throw new Error('No fue posible guardar la identidad de la empresa.')
       onSaved(await response.json() as TenantContext)
-      setMessage('Identidad visual guardada. Ya puedes verla en la landing.')
+      setMessage('Identidad de la empresa guardada. Ya puedes verla en la landing.')
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible guardar los cambios.') }
     finally { setBusy(false) }
   }
@@ -606,11 +608,12 @@ function BrandSettingsPanel({ tenant, csrfToken, onSaved }: { tenant: TenantCont
       <header>
         <span className="eyebrow">IDENTIDAD DE LA EMPRESA</span>
         <h2 id="brand-settings-title">Tu marca en la landing</h2>
-        <p>Elige dos colores, un correo de contacto y tu logo. Los cambios se aplican solo a {tenant.name}.</p>
+        <p>Define el nombre, los colores, el correo de contacto y el logo que verán tus clientes.</p>
       </header>
       <div className="brand-settings-grid">
         <form onSubmit={saveBrand} className="brand-settings-form">
-          <h3>Colores y contacto</h3>
+          <h3>Nombre, colores y contacto</h3>
+          <label>Nombre de la empresa<input type="text" value={name} onChange={(event) => setName(event.target.value)} maxLength={160} required /></label>
           <label>Color principal
             <div className="brand-color-field">
               <input type="color" aria-label="Elegir color principal" value={colorPattern.test(primary) ? primary : '#25364A'} onChange={(event) => setPrimary(event.target.value.toUpperCase())} />
@@ -624,7 +627,7 @@ function BrandSettingsPanel({ tenant, csrfToken, onSaved }: { tenant: TenantCont
             </div>
           </label>
           <label>Correo de contacto<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ventas@tuempresa.cl" /></label>
-          <button type="submit" disabled={busy || !csrfToken}>Guardar colores y contacto</button>
+          <button type="submit" disabled={busy || !csrfToken}>Guardar identidad</button>
         </form>
         <div className="brand-logo-panel">
           <h3>Logo de la empresa</h3>
@@ -969,7 +972,7 @@ function PrivateApp() {
         {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
 
         {activeSection === 'summary' && <section className="summary-grid" aria-label="Resumen de la empresa">
-          {state.data.role === 'OWNER' && <button onClick={() => setActiveSection('branding')}><span>Mi marca</span><strong>↗</strong><small>colores, correo y logo de la landing</small></button>}
+          {state.data.role === 'OWNER' && <button onClick={() => setActiveSection('branding')}><span>Mi marca</span><strong>↗</strong><small>nombre, colores, correo y logo</small></button>}
           <button onClick={() => setActiveSection('marketing')}><span>Marketing</span><strong>{products.filter((product) => product.is_published).length}</strong><small>productos publicados e imágenes</small></button>
           <button onClick={() => setActiveSection('catalog')}><span>Catálogo</span><strong>{products.length}</strong><small>productos registrados</small></button>
           <button onClick={() => setActiveSection('prospects')}><span>Prospectos</span><strong>{prospects.length}</strong><small>organizaciones potenciales</small></button>
