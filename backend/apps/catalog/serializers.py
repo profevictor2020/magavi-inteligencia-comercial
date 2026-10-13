@@ -12,6 +12,8 @@ class CategorySerializer(serializers.ModelSerializer):
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
+    category_is_active = serializers.BooleanField(source="category.is_active", read_only=True)
+    image_path = serializers.CharField(read_only=True)
     target_industry_labels = serializers.SerializerMethodField()
 
     class Meta:
@@ -20,6 +22,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "id",
             "category",
             "category_name",
+            "category_is_active",
             "name",
             "description",
             "sku",
@@ -31,10 +34,11 @@ class ProductSerializer(serializers.ModelSerializer):
             "target_industry_labels",
             "match_keywords",
             "commercial_priority",
+            "image_path",
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "category_name", "target_industry_labels", "created_at", "updated_at")
+        read_only_fields = ("id", "category_name", "category_is_active", "image_path", "target_industry_labels", "created_at", "updated_at")
 
     def validate_target_industries(self, value):
         values = self._validate_string_list(value, "Las industrias objetivo")
@@ -67,7 +71,8 @@ class ProductSerializer(serializers.ModelSerializer):
 class PublicProductSerializer(serializers.ModelSerializer):
     category = serializers.CharField(source="category.name")
     price = serializers.DecimalField(max_digits=12, decimal_places=2, coerce_to_string=True)
+    image_path = serializers.CharField(source="public_image_path", read_only=True)
 
     class Meta:
         model = Product
-        fields = ("id", "name", "description", "sku", "format", "price", "category")
+        fields = ("id", "name", "description", "sku", "format", "price", "category", "image_path")

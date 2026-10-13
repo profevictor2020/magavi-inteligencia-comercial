@@ -22,7 +22,6 @@ class PublicTenantLandingSerializer(serializers.ModelSerializer):
             "logo_path",
             "theme",
             "contact",
-            "featured_offerings",
             "products",
             "is_demo",
         )

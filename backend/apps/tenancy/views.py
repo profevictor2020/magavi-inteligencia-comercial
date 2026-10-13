@@ -26,9 +26,6 @@ DEMO_LANDING = {
     "logo_path": "/static/demo/default-company.svg",
     "theme": {"primary": "#0D766E", "secondary": "#F4BC57"},
     "contact": {"email": "", "phone": ""},
-    "featured_offerings": [
-        {"name": "Servicio demostrativo", "description": "Contenido sintético para validar la plataforma."},
-    ],
     "products": [],
     "is_demo": True,
 }

@@ -10,7 +10,6 @@ const companyA = {
   logo_path: '/static/demo/empresa-a.svg',
   theme: { primary: '#145C5A', secondary: '#F1A950' },
   contact: { email: 'a@example.test', phone: '+56 9 0000 0001' },
-  featured_offerings: [{ name: 'Servicio A', description: 'Contenido sintético A' }],
   products: [{
     id: 'product-a',
     name: 'Café premium',
@@ -19,6 +18,7 @@ const companyA = {
     format: 'Caja 12 unidades',
     price: '24990.00',
     category: 'Abarrotes',
+    image_path: '/api/public/products/product-a/image/?v=1',
   }],
   is_demo: false,
 }
@@ -28,7 +28,6 @@ const companyB = {
   name: 'Empresa B',
   headline: 'Propuesta de Empresa B',
   logo_path: '/static/demo/empresa-b.svg',
-  featured_offerings: [{ name: 'Servicio B', description: 'Contenido sintético B' }],
 }
 
 function mockJson(data: unknown, ok = true) {
@@ -46,8 +45,10 @@ describe('multi-tenant application routes', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Propuesta de Empresa A' })).toBeInTheDocument()
-    expect(screen.getByText('Servicio A')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Productos', level: 2 })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Café premium' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Café premium' })).toHaveAttribute('src', companyA.products[0].image_path)
+    expect(screen.queryByText('Servicio A')).not.toBeInTheDocument()
     expect(screen.queryByText('Empresa B')).not.toBeInTheDocument()
     expect(fetch).toHaveBeenCalledWith('/api/public/landing/', expect.objectContaining({ signal: expect.any(AbortSignal) }))
   })
@@ -57,8 +58,8 @@ describe('multi-tenant application routes', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Propuesta de Empresa B' })).toBeInTheDocument()
-    expect(screen.getByText('Servicio B')).toBeInTheDocument()
-    expect(screen.queryByText('Servicio A')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Productos', level: 2 })).toBeInTheDocument()
+    expect(screen.queryByText('Servicio B')).not.toBeInTheDocument()
   })
 
   it('renders the controlled demo returned for an unknown hostname', async () => {
@@ -111,7 +112,7 @@ describe('multi-tenant application routes', () => {
         : url.includes('/categories/')
           ? [{ id: 'category-a', name: 'Abarrotes', description: '', is_active: true }]
           : url.includes('/products/')
-            ? [{ ...companyA.products[0], category: 'category-a', category_name: 'Abarrotes', is_available: true, is_published: false, target_industries: [], target_industry_labels: [], match_keywords: [], commercial_priority: 'MEDIUM' }]
+            ? [{ ...companyA.products[0], category: 'category-a', category_name: 'Abarrotes', category_is_active: true, is_available: true, is_published: false, target_industries: [], target_industry_labels: [], match_keywords: [], commercial_priority: 'MEDIUM' }]
             : { authenticated: true, csrf_token: 'synthetic-csrf-token' }
       return Promise.resolve({ ok: true, json: async () => payload })
     }))
@@ -122,7 +123,7 @@ describe('multi-tenant application routes', () => {
     expect(await screen.findByRole('heading', { name: 'Productos de Empresa A' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Datos esenciales' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Importar productos desde CSV' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Publicar' })).toBeInTheDocument()
+    expect(screen.getByText('Borrador')).toBeInTheDocument()
     const catalogNavigation = screen.getByRole('navigation', { name: 'Secciones del catálogo' })
     fireEvent.click(within(catalogNavigation).getByRole('button', { name: /Categorías/ }))
     expect(screen.getByRole('heading', { name: 'Taxonomía del catálogo' })).toBeInTheDocument()
@@ -176,6 +177,35 @@ describe('multi-tenant application routes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Subir logo' }))
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/tenant/logo/', expect.objectContaining({ method: 'POST', body: expect.any(FormData) })))
     expect(await screen.findByAltText('Logo actual de Empresa A')).toHaveAttribute('src', '/api/public/logo/?v=123')
+  })
+
+  it('lets marketing add an image and publish a catalog product', async () => {
+    window.history.replaceState({}, '', '/app/')
+    let product = { ...companyA.products[0], image_path: null as string | null, category: 'category-a', category_name: 'Abarrotes', category_is_active: true, is_available: true, is_published: false, target_industries: [], target_industry_labels: [], match_keywords: [], commercial_priority: 'MEDIUM' }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      let payload: unknown = []
+      if (url.includes('/tenant/context/')) payload = { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+      else if (url.includes('/auth/session/')) payload = { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+      else if (url.includes('/products/') && url.includes('/image/')) {
+        product = { ...product, image_path: '/api/catalog/products/product-a/image/?v=123' }
+        payload = product
+      } else if (url.includes('/products/') && init?.method === 'PATCH') {
+        product = { ...product, is_published: true }
+        payload = product
+      } else if (url.includes('/products/')) payload = [product]
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: 'Marketing' }))
+    expect(screen.getByRole('heading', { name: 'Productos en tu landing' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText(/Imagen del producto/), { target: { files: [new File(['imagen'], 'cafe.png', { type: 'image/png' })] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Subir imagen' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/catalog/products/product-a/image/', expect.objectContaining({ method: 'POST', body: expect.any(FormData) })))
+    expect(await screen.findByAltText('Imagen de Café premium')).toHaveAttribute('src', '/api/catalog/products/product-a/image/?v=123')
+    fireEvent.click(screen.getByRole('button', { name: 'Publicar en la landing' }))
+    expect(await screen.findByText('Publicado en la landing')).toBeInTheDocument()
   })
 
   it('creates and issues a quote from an existing request', async () => {
