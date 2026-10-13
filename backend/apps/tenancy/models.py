@@ -39,6 +39,7 @@ class Tenant(models.Model):
     description = models.TextField(blank=True, max_length=1000)
     headline = models.CharField(max_length=180)
     logo_path = models.CharField(max_length=255, validators=[validate_demo_image_path])
+    logo_updated_at = models.DateTimeField(null=True, blank=True, editable=False)
     primary_color = models.CharField(max_length=7, validators=[hex_color_validator], default="#0D766E")
     secondary_color = models.CharField(max_length=7, validators=[hex_color_validator], default="#F4BC57")
     contact_email = models.EmailField(blank=True)
@@ -53,6 +54,20 @@ class Tenant(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    @property
+    def public_logo_url(self) -> str:
+        if self.logo_updated_at:
+            return f"/api/public/logo/?v={int(self.logo_updated_at.timestamp() * 1_000_000)}"
+        return self.logo_path
+
+
+class TenantLogo(models.Model):
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="uploaded_logo")
+    data = models.BinaryField()
+
+    def __str__(self) -> str:
+        return f"Logo de {self.tenant}"
 
 
 class Membership(models.Model):

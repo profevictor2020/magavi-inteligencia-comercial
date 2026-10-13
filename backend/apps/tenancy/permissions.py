@@ -40,3 +40,9 @@ class TenantRolePermission(HasTenantMembership):
         if membership is None:
             return False
         return request.method in SAFE_METHODS or membership.role in self.write_roles
+
+
+class TenantOwnerPermission(HasTenantMembership):
+    def has_permission(self, request, view):
+        membership = get_active_membership(request)
+        return membership is not None and membership.role == Membership.Role.OWNER

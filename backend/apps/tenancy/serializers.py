@@ -3,10 +3,11 @@ from rest_framework import serializers
 from apps.catalog.models import Product
 from apps.catalog.serializers import PublicProductSerializer
 
-from .models import Tenant
+from .models import Membership, Tenant
 
 
 class PublicTenantLandingSerializer(serializers.ModelSerializer):
+    logo_path = serializers.CharField(source="public_logo_url", read_only=True)
     theme = serializers.SerializerMethodField()
     contact = serializers.SerializerMethodField()
     is_demo = serializers.SerializerMethodField()
@@ -47,6 +48,7 @@ class PublicTenantLandingSerializer(serializers.ModelSerializer):
 
 class TenantPrivateSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
+    logo_path = serializers.CharField(source="public_logo_url", read_only=True)
 
     class Meta:
         model = Tenant
@@ -69,3 +71,10 @@ class TenantPrivateSerializer(serializers.ModelSerializer):
     def get_role(self, obj):
         membership = getattr(self.context["request"], "_tenant_membership", None)
         return membership.role if membership else None
+
+    def validate(self, attrs):
+        if {"primary_color", "secondary_color"} & attrs.keys():
+            membership = getattr(self.context["request"], "_tenant_membership", None)
+            if membership is None or membership.role != Membership.Role.OWNER:
+                raise serializers.ValidationError("Solo el propietario puede cambiar los colores de la empresa.")
+        return attrs

@@ -92,6 +92,12 @@ const trackingLabels: Record<FormalQuote['tracking_status'], string> = {
 
 const formatQuoteDate = (date: string) => date.split('-').reverse().join('/')
 const formatClp = (value: string) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(value))
+function colorLuminance(hex: string) {
+  const channels = [1, 3, 5].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255)
+  return channels.map((value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4).reduce((total, value, index) => total + value * [0.2126, 0.7152, 0.0722][index], 0)
+}
+
+const colorOn = (hex: string) => colorLuminance(hex) > 0.18 ? '#000000' : '#ffffff'
 const todayInChile = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 
 function needsQuoteAttention(quote: FormalQuote, today: string) {
@@ -143,6 +149,10 @@ type TenantContext = {
   id: string
   name: string
   role: 'OWNER' | 'ADMIN' | 'STAFF' | 'VIEWER'
+  logo_path: string
+  primary_color: string
+  secondary_color: string
+  contact_email: string
 }
 
 type AuthSession = {
@@ -259,98 +269,41 @@ function PublicLanding() {
   const theme = {
     '--tenant-primary': tenant.theme.primary,
     '--tenant-secondary': tenant.theme.secondary,
+    '--tenant-primary-on': colorOn(tenant.theme.primary),
+    '--tenant-secondary-on': colorOn(tenant.theme.secondary),
+    '--tenant-primary-text': colorLuminance(tenant.theme.primary) <= 0.18 ? tenant.theme.primary : '#17242b',
   } as CSSProperties
 
   return (
     <main className="tenant-site" style={theme}>
       <header className="site-header">
-        <nav className="public-nav page-width" aria-label="Navegación pública">
+        <nav className="public-nav landing-nav page-width" aria-label="Navegación pública">
           <Brand name={tenant.name} logo={tenant.logo_path} />
-          <div className="nav-links">
-            <a href="#empresa">Empresa</a>
-            <a href="#productos">Productos y servicios</a>
-            <a href="#contacto">Contacto</a>
-          </div>
+          <div className="nav-links"><a href="#productos">Productos</a><a href="#contacto">Contacto</a></div>
           <a className="app-link" href="/app/login/">Acceso equipo <span aria-hidden="true">↗</span></a>
         </nav>
       </header>
 
-      <section className="tenant-hero page-width" id="empresa">
-        <div className="hero-copy">
-          <span className="eyebrow">{tenant.is_demo ? 'SITIO DEMOSTRATIVO' : 'BIENVENIDOS'}</span>
+      <section className="landing-hero page-width" id="empresa">
+        <div className="landing-hero-copy">
+          <span className="eyebrow">{tenant.is_demo ? 'SITIO DEMOSTRATIVO' : tenant.name.toLocaleUpperCase('es-CL')}</span>
           <h1>{tenant.headline}</h1>
-          <p>{tenant.description}</p>
-          <a className="hero-action" href="#productos">Conoce nuestra propuesta <span aria-hidden="true">→</span></a>
-          {(tenant.contact.email || tenant.contact.phone) && (
-            <div className="contact-row" aria-label="Datos de contacto">
-              {tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}
-              {tenant.contact.phone && <span>{tenant.contact.phone}</span>}
-            </div>
-          )}
+          {tenant.description && <p>{tenant.description}</p>}
+          <div className="landing-hero-actions"><a className="landing-main-action" href="#productos">Explorar productos <span aria-hidden="true">→</span></a><a className="landing-text-action" href={tenant.products.length ? '#cotizar' : '#contacto'}>{tenant.products.length ? 'Solicitar cotización' : 'Contáctanos'}</a></div>
         </div>
-        <div className="hero-visual" aria-hidden="true">
-          <div className="visual-main"><img src={tenant.logo_path} alt="" /></div>
-          <div className="visual-detail visual-detail-top"><span>Calidad</span></div>
-          <div className="visual-detail visual-detail-bottom"><span>Confianza</span></div>
-        </div>
+        <div className="landing-brand-panel"><div className="landing-brand-image"><img src={tenant.logo_path} alt={`Logo de ${tenant.name}`} /></div><span>Conoce lo que podemos ofrecerte</span></div>
       </section>
 
-      <section className="value-strip" aria-label="Compromisos de la empresa">
-        <div className="page-width value-grid">
-          <div><strong>01</strong><span>Atención cercana</span></div>
-          <div><strong>02</strong><span>Soluciones confiables</span></div>
-          <div><strong>03</strong><span>Experiencia especializada</span></div>
-        </div>
+      <section className="landing-offers page-width" id="productos" aria-labelledby="offerings-title">
+        <div className="landing-section-heading"><span className="eyebrow">NUESTRA OFERTA</span><h2 id="offerings-title">Productos y servicios</h2><p>Explora nuestra selección y cuéntanos qué necesitas.</p></div>
+        {tenant.featured_offerings.length > 0 && <div className="landing-offering-grid">{tenant.featured_offerings.map((offering, index) => <article key={`${offering.name}-${index}`}><span className="landing-offering-number">{String(index + 1).padStart(2, '0')}</span><h3>{offering.name}</h3><p>{offering.description}</p></article>)}</div>}
+        {tenant.featured_offerings.length === 0 && tenant.products.length === 0 && <p className="landing-empty-offer">Estamos preparando nuestro catálogo. Escríbenos y te ayudaremos a encontrar lo que buscas.</p>}
+        {tenant.products.length > 0 && <div className="landing-catalog"><div className="landing-catalog-heading"><h3>Catálogo disponible</h3><span>{tenant.products.length} producto{tenant.products.length === 1 ? '' : 's'}</span></div><div className="landing-product-grid">{tenant.products.map((product) => <article key={product.id}><span className="landing-product-category">{product.category}</span><h4>{product.name}</h4><p>{product.description || product.format}</p><div><span>{product.format}</span><strong>{product.price ? formatClp(product.price) : 'Por cotizar'}</strong></div></article>)}</div></div>}
       </section>
 
-      <section className="offerings page-width" id="productos" aria-labelledby="offerings-title">
-        <div className="section-heading">
-          <div><span>NUESTRA OFERTA</span><h2 id="offerings-title">Productos y servicios</h2></div>
-          <p>Una selección pensada para entregar calidad, continuidad y una atención que acompaña cada necesidad.</p>
-        </div>
-        <div className="offering-grid">
-          {tenant.featured_offerings.map((offering, index) => (
-            <article key={`${offering.name}-${index}`}>
-              <div className={`offering-art offering-art-${(index % 3) + 1}`} aria-hidden="true"><span>0{index + 1}</span></div>
-              <span className="card-kicker">DESTACADO</span>
-              <h3>{offering.name}</h3>
-              <p>{offering.description}</p>
-              <span className="card-link">Ver más <span aria-hidden="true">→</span></span>
-            </article>
-          ))}
-        </div>
-        {tenant.products.length > 0 && (
-          <div className="product-grid" aria-label="Catálogo publicado">
-            {tenant.products.map((product) => (
-              <article className="product-card" key={product.id}>
-                <span className="card-kicker">{product.category}</span>
-                <h3>{product.name}</h3>
-                <p>{product.description || product.format}</p>
-                <div className="product-meta">
-                  {product.format && <span>{product.format}</span>}
-                  {product.price && <strong>${Number(product.price).toLocaleString('es-CL')}</strong>}
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
+      <section className="landing-contact" id="contacto"><div className="page-width"><div className="landing-contact-heading"><div><span className="eyebrow">HABLEMOS</span><h2>Conversemos sobre lo que necesitas.</h2></div><div className="landing-contact-links">{tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email}</a>}{tenant.contact.phone && <a href={`tel:${tenant.contact.phone}`}>{tenant.contact.phone}</a>}</div></div>{tenant.products.length > 0 && <div id="cotizar"><PublicQuoteForm products={tenant.products} /></div>}</div></section>
 
-      <section className="contact-banner" id="contacto">
-        <div className="page-width contact-banner-inner">
-          <div><span className="eyebrow">HABLEMOS</span><h2>Construyamos una gran relación comercial.</h2></div>
-          <div className="contact-actions">
-            {tenant.contact.email && <a href={`mailto:${tenant.contact.email}`}>{tenant.contact.email} <span aria-hidden="true">↗</span></a>}
-            {tenant.contact.phone && <span>{tenant.contact.phone}</span>}
-          </div>
-        </div>
-        {tenant.products.length > 0 && <div className="page-width"><PublicQuoteForm products={tenant.products} /></div>}
-      </section>
-
-      <footer className="public-footer page-width">
-        <Brand name={tenant.name} logo={tenant.logo_path} />
-        <span>{tenant.is_demo ? 'Contenido sintético de demostración' : 'Sitio impulsado por MAGAVI'}</span>
-      </footer>
+      <footer className="public-footer page-width"><Brand name={tenant.name} logo={tenant.logo_path} /><span>{tenant.is_demo ? 'Contenido sintético de demostración' : 'Sitio impulsado por MAGAVI'}</span></footer>
     </main>
   )
 }
@@ -593,6 +546,105 @@ function QuoteFollowUpCard({ inquiry, quote, canEdit, csrfToken, onSaved }: {
   </article>
 }
 
+function BrandSettingsPanel({ tenant, csrfToken, onSaved }: { tenant: TenantContext; csrfToken: string; onSaved: (tenant: TenantContext) => void }) {
+  const [primary, setPrimary] = useState(tenant.primary_color)
+  const [secondary, setSecondary] = useState(tenant.secondary_color)
+  const [email, setEmail] = useState(tenant.contact_email)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const colorPattern = /^#[0-9a-fA-F]{6}$/
+
+  async function saveBrand(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    if (!colorPattern.test(primary) || !colorPattern.test(secondary)) { setError('Usa colores hexadecimales de seis dígitos.'); return }
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const response = await fetch('/api/tenant/context/', { method: 'PATCH', credentials: 'same-origin', headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken }, body: JSON.stringify({ primary_color: primary, secondary_color: secondary, contact_email: email }) })
+      if (!response.ok) throw new Error('No fue posible guardar los colores y el correo.')
+      onSaved(await response.json() as TenantContext)
+      setMessage('Identidad visual guardada. Ya puedes verla en la landing.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible guardar los cambios.') }
+    finally { setBusy(false) }
+  }
+
+  async function uploadLogo(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    if (busy) return
+    if (!logoFile || logoFile.size > 2_000_000) { setError('Selecciona una imagen PNG, JPEG o WebP de hasta 2 MB.'); return }
+    setBusy(true); setError(''); setMessage('')
+    const data = new FormData()
+    data.append('logo', logoFile)
+    try {
+      const response = await fetch('/api/tenant/logo/', { method: 'POST', credentials: 'same-origin', headers: { ...jsonHeaders, 'X-CSRFToken': csrfToken }, body: data })
+      if (!response.ok) throw new Error('No fue posible subir el logo. Revisa el formato y tamaño de la imagen.')
+      onSaved(await response.json() as TenantContext)
+      setLogoFile(null)
+      form.reset()
+      setMessage('Logo actualizado en la landing y en las cotizaciones.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible subir el logo.') }
+    finally { setBusy(false) }
+  }
+
+  async function removeLogo() {
+    if (busy) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const response = await fetch('/api/tenant/logo/', { method: 'DELETE', credentials: 'same-origin', headers: { ...jsonHeaders, 'X-CSRFToken': csrfToken } })
+      if (!response.ok) throw new Error('No fue posible restaurar el logo predeterminado.')
+      onSaved(await response.json() as TenantContext)
+      setLogoFile(null)
+      setMessage('Se restauró el logo predeterminado.')
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'No fue posible restaurar el logo.') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <section className="brand-settings" aria-labelledby="brand-settings-title">
+      <header>
+        <span className="eyebrow">IDENTIDAD DE LA EMPRESA</span>
+        <h2 id="brand-settings-title">Tu marca en la landing</h2>
+        <p>Elige dos colores, un correo de contacto y tu logo. Los cambios se aplican solo a {tenant.name}.</p>
+      </header>
+      <div className="brand-settings-grid">
+        <form onSubmit={saveBrand} className="brand-settings-form">
+          <h3>Colores y contacto</h3>
+          <label>Color principal
+            <div className="brand-color-field">
+              <input type="color" aria-label="Elegir color principal" value={colorPattern.test(primary) ? primary : '#25364A'} onChange={(event) => setPrimary(event.target.value.toUpperCase())} />
+              <input type="text" aria-label="Código del color principal" value={primary} onChange={(event) => setPrimary(event.target.value)} maxLength={7} pattern="#[0-9a-fA-F]{6}" required />
+            </div>
+          </label>
+          <label>Color secundario
+            <div className="brand-color-field">
+              <input type="color" aria-label="Elegir color secundario" value={colorPattern.test(secondary) ? secondary : '#E88C62'} onChange={(event) => setSecondary(event.target.value.toUpperCase())} />
+              <input type="text" aria-label="Código del color secundario" value={secondary} onChange={(event) => setSecondary(event.target.value)} maxLength={7} pattern="#[0-9a-fA-F]{6}" required />
+            </div>
+          </label>
+          <label>Correo de contacto<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="ventas@tuempresa.cl" /></label>
+          <button type="submit" disabled={busy || !csrfToken}>Guardar colores y contacto</button>
+        </form>
+        <div className="brand-logo-panel">
+          <h3>Logo de la empresa</h3>
+          <div className="brand-logo-preview"><img src={tenant.logo_path} alt={`Logo actual de ${tenant.name}`} /></div>
+          <form onSubmit={uploadLogo}>
+            <label>Seleccionar imagen<input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setLogoFile(event.target.files?.[0] ?? null)} /></label>
+            <small>PNG, JPEG o WebP. Hasta 2 MB. Se ajusta automáticamente para la web.</small>
+            <button type="submit" disabled={busy || !csrfToken || !logoFile}>Subir logo</button>
+          </form>
+          {tenant.logo_path.startsWith('/api/public/logo/') && <button className="brand-remove-logo" type="button" onClick={removeLogo} disabled={busy}>Restaurar logo predeterminado</button>}
+        </div>
+      </div>
+      {error && <p className="quote-error" role="alert">{error}</p>}
+      {message && <p className="quote-success" role="status">{message}</p>}
+      <a href="/" target="_blank" rel="noopener noreferrer" className="brand-landing-link">Ver landing pública ↗</a>
+    </section>
+  )
+}
+
 function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
   const [categories, setCategories] = useState<Category[]>([])
@@ -602,7 +654,7 @@ function PrivateApp() {
   const [territories, setTerritories] = useState<Territory[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [industrySegments, setIndustrySegments] = useState<IndustrySegmentOption[]>([])
-  const [activeSection, setActiveSection] = useState<'summary' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'quoteTracking'>('summary')
+  const [activeSection, setActiveSection] = useState<'summary' | 'branding' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'quoteTracking'>('summary')
   const [catalogSection, setCatalogSection] = useState<'products' | 'categories' | 'import' | 'matching'>('products')
   const [opportunityStatus, setOpportunityStatus] = useState<'ALL' | Opportunity['status']>('ALL')
   const [generatingOpportunities, setGeneratingOpportunities] = useState(false)
@@ -853,6 +905,7 @@ function PrivateApp() {
         <Brand name={state.data.name} logo="/static/magavi-mark.svg" />
         <nav aria-label="Administración de la empresa">
           <button className={activeSection === 'summary' ? 'is-active' : ''} onClick={() => setActiveSection('summary')}>Resumen</button>
+          {state.data.role === 'OWNER' && <button className={activeSection === 'branding' ? 'is-active' : ''} onClick={() => setActiveSection('branding')}>Mi marca</button>}
           <button className={activeSection === 'catalog' ? 'is-active' : ''} onClick={() => setActiveSection('catalog')}>Catálogo <span>{products.length}</span></button>
           <button className={activeSection === 'prospects' ? 'is-active' : ''} onClick={() => setActiveSection('prospects')}>Prospectos <span>{prospects.length}</span></button>
           <button className={activeSection === 'territories' ? 'is-active' : ''} onClick={() => setActiveSection('territories')}>Territorios <span>{territories.length}</span></button>
@@ -865,12 +918,13 @@ function PrivateApp() {
       <div className="admin-content">
         <section className="private-heading">
           <span className="eyebrow">ÁREA PRIVADA</span>
-          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
+          <h1>{activeSection === 'summary' ? `Hola, equipo de ${state.data.name}` : ({ branding: 'Identidad de la empresa', catalog: 'Catálogo comercial', prospects: 'Prospectos comerciales', territories: 'Territorios', opportunities: 'Oportunidades priorizadas', inquiries: 'Solicitudes comerciales', quoteTracking: 'Seguimiento de cotizaciones' } as const)[activeSection]}</h1>
           <p>Selecciona una opción del menú para administrar esta empresa.</p>
         </section>
         {catalogError && <p className="catalog-error" role="alert">{catalogError}</p>}
 
         {activeSection === 'summary' && <section className="summary-grid" aria-label="Resumen de la empresa">
+          {state.data.role === 'OWNER' && <button onClick={() => setActiveSection('branding')}><span>Mi marca</span><strong>↗</strong><small>colores, correo y logo de la landing</small></button>}
           <button onClick={() => setActiveSection('catalog')}><span>Catálogo</span><strong>{products.length}</strong><small>productos registrados</small></button>
           <button onClick={() => setActiveSection('prospects')}><span>Prospectos</span><strong>{prospects.length}</strong><small>organizaciones potenciales</small></button>
           <button onClick={() => setActiveSection('territories')}><span>Territorios</span><strong>{territories.length}</strong><small>zonas comerciales</small></button>
@@ -878,6 +932,8 @@ function PrivateApp() {
           <button onClick={() => setActiveSection('inquiries')}><span>Solicitudes</span><strong>{inquiries.length}</strong><small>contactos recibidos</small></button>
           <button onClick={() => setActiveSection('quoteTracking')}><span>Seguimiento</span><strong>{attentionCount}</strong><small>cotizaciones que requieren atención</small></button>
         </section>}
+
+        {activeSection === 'branding' && state.data.role === 'OWNER' && <BrandSettingsPanel tenant={state.data} csrfToken={csrfToken} onSaved={(tenant) => setState({ phase: 'ready', data: tenant })} />}
 
         {activeSection === 'catalog' && <section className="catalog-workspace">
           <div className="catalog-workspace-intro">
