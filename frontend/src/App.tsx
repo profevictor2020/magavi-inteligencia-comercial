@@ -139,6 +139,8 @@ type Prospect = {
   email: string
   phone: string
   source: string
+  instagram_handle: string
+  discovery_score: number | null
   notes: string
   verified_at: string | null
   status: 'NEW' | 'REVIEWED' | 'DISCARDED'
@@ -177,6 +179,17 @@ type AuthSession = {
   authenticated: boolean
   csrf_token?: string
   tenant?: TenantContext
+}
+
+type DiscoveryStatus = {
+  configured: boolean
+  enabled: boolean
+  status: 'NOT_STARTED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED'
+  finished_at: string | null
+  hashtags: string[]
+  profiles_found: number
+  prospects_created: number
+  error: string
 }
 
 type LoadState<T> = { phase: 'loading' } | { phase: 'ready'; data: T } | { phase: 'error' }
@@ -790,6 +803,9 @@ function PrivateApp() {
   const [products, setProducts] = useState<Product[]>([])
   const [inquiries, setInquiries] = useState<QuoteInquiry[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [discovery, setDiscovery] = useState<DiscoveryStatus | null>(null)
+  const [discoveryBusy, setDiscoveryBusy] = useState(false)
+  const [discoveryError, setDiscoveryError] = useState('')
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [territories, setTerritories] = useState<Territory[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
@@ -844,6 +860,15 @@ function PrivateApp() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    if (state.phase !== 'ready') return
+    const controller = new AbortController()
+    fetch('/api/prospects/discovery/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
+      .then(async (response) => { if (response.ok) setDiscovery(await response.json() as DiscoveryStatus) })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [state.phase])
+
   if (state.phase === 'loading') return <main className="centered-state">Verificando acceso…</main>
   if (state.phase === 'error') {
     return (
@@ -881,6 +906,25 @@ function PrivateApp() {
     setActiveSection(priority.section)
     if (priority.section === 'orders') {
       window.setTimeout(() => document.getElementById(`order-${priority.target}`)?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }), 0)
+    }
+  }
+
+  async function updateDiscovery(enabled: boolean) {
+    if (!csrfToken || discoveryBusy) return
+    setDiscoveryBusy(true)
+    setDiscoveryError('')
+    try {
+      const response = await fetch('/api/prospects/discovery/', {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { ...jsonHeaders, 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) throw new Error('Discovery configuration failed')
+      setDiscovery(await response.json() as DiscoveryStatus)
+    } catch {
+      setDiscoveryError('No fue posible cambiar la búsqueda automática. Inténtalo nuevamente.')
+    } finally {
+      setDiscoveryBusy(false)
     }
   }
 
@@ -1185,9 +1229,10 @@ function PrivateApp() {
 
         {activeSection === 'prospects' && <section className="catalog-list prospect-list">
           <div className="catalog-list-heading"><div><span className="eyebrow">PROSPECCIÓN</span><h2>Prospectos comerciales</h2></div><strong>{prospects.length}</strong></div>
+          <div className="discovery-panel"><div><span className="eyebrow">BÚSQUEDA AUTOMÁTICA</span><h3>Prospectos desde Instagram</h3><p>La IA toma el catálogo y los territorios para buscar negocios, evaluar señales públicas y agregar prospectos pertinentes sin cargar perfiles a mano.</p>{discoveryError && <p className="quote-error" role="alert">{discoveryError}</p>}{canEdit && discovery?.configured && <button type="button" disabled={discoveryBusy || !csrfToken} onClick={() => updateDiscovery(!discovery.enabled)}>{discoveryBusy ? 'Guardando…' : discovery.enabled ? 'Pausar búsqueda automática' : 'Activar búsqueda automática'}</button>}</div><div className="discovery-panel-status">{!discovery ? <strong>Consultando estado…</strong> : !discovery.configured ? <><strong>Pendiente de conexión</strong><span>Faltan credenciales del extractor de Instagram, IA o tarea programada en Render.</span></> : <><strong>{discovery.enabled ? 'Automática activada' : 'Automática pausada'}</strong><span>{({ NOT_STARTED: 'Aún sin búsquedas', RUNNING: 'Buscando perfiles…', COMPLETED: 'Última búsqueda completada', FAILED: 'Última búsqueda fallida', SKIPPED: 'Sin productos para buscar' } as const)[discovery.status]}</span>{discovery.finished_at && <span>{new Date(discovery.finished_at).toLocaleString('es-CL')} · {discovery.prospects_created} prospectos nuevos de {discovery.profiles_found} perfiles</span>}{discovery.error && <span>{discovery.error}</span>}</>}</div></div>
           {canEdit && <form className="prospect-form" onSubmit={createProspect}><label>Nombre comercial<input name="name" required /></label><label>Territorio<select name="territory" defaultValue=""><option value="">Sin asignar</option>{territories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Industria<select name="industry" defaultValue=""><option value="">Sin clasificar</option>{industrySegments.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label><label>Dirección<input name="address" /></label><label>Ciudad o comuna<input name="city" /></label><label>Región<input name="region" /></label><label>Sitio web<input name="website" type="url" /></label><label>Correo<input name="email" type="email" /></label><label>Teléfono<input name="phone" /></label><label>Fuente<input name="source" required /></label><label>Verificado el<input name="verified_at" type="date" /></label><label className="wide-field">Observaciones<textarea name="notes" /></label><button type="submit" disabled={!csrfToken}>Crear prospecto</button></form>}
           <label className="prospect-search">Buscar prospectos<input value={prospectSearch} onChange={(event) => setProspectSearch(event.target.value)} placeholder="Nombre, rubro o ubicación" /></label>
-          {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry_label} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry_label || 'Sin industria'} · {prospect.territory_name || 'Sin territorio'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}</small>{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
+          {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry_label} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry_label || 'Sin industria'} · {prospect.territory_name || 'Sin territorio'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}{prospect.discovery_score !== null && prospect.discovery_score !== undefined ? ` · Afinidad IA ${prospect.discovery_score}/100` : ''}</small>{prospect.instagram_handle && <p><a href={`https://www.instagram.com/${prospect.instagram_handle}/`} target="_blank" rel="noopener noreferrer">Ver perfil de Instagram ↗</a></p>}{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
         </section>}
 
         {activeSection === 'territories' && <section className="catalog-list territory-list">

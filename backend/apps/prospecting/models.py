@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.db.models import Q
 
 from apps.catalog.models import IndustrySegment
 
@@ -44,6 +45,8 @@ class Prospect(models.Model):
     city = models.CharField(max_length=120, blank=True)
     region = models.CharField(max_length=120, blank=True)
     website = models.URLField(blank=True)
+    instagram_handle = models.CharField(max_length=30, blank=True, editable=False)
+    discovery_score = models.PositiveSmallIntegerField(null=True, blank=True, editable=False)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=40, blank=True)
     source = models.CharField(max_length=240)
@@ -56,9 +59,28 @@ class Prospect(models.Model):
     class Meta:
         ordering = ["name", "id"]
         indexes = [models.Index(fields=["tenant", "status", "name"], name="prospect_tenant_status_idx")]
+        constraints = [models.UniqueConstraint(fields=["tenant", "instagram_handle"], condition=~Q(instagram_handle=""), name="unique_instagram_handle_per_tenant")]
 
     def __str__(self):
         return f"{self.name} · {self.tenant}"
+
+
+class DiscoveryRun(models.Model):
+    class Status(models.TextChoices):
+        RUNNING = "RUNNING", "En curso"
+        COMPLETED = "COMPLETED", "Completada"
+        FAILED = "FAILED", "Fallida"
+        SKIPPED = "SKIPPED", "Sin objetivos"
+
+    tenant = models.OneToOneField("tenancy.Tenant", on_delete=models.CASCADE, related_name="discovery_run")
+    enabled = models.BooleanField(default=False)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.SKIPPED)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    hashtags = models.JSONField(default=list, blank=True)
+    profiles_found = models.PositiveIntegerField(default=0)
+    prospects_created = models.PositiveIntegerField(default=0)
+    error = models.CharField(max_length=250, blank=True)
 
 
 class Opportunity(models.Model):

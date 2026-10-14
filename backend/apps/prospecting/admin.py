@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Opportunity, Prospect, Territory
+from .models import DiscoveryRun, Opportunity, Prospect, Territory
 
 
 @admin.register(Territory)
@@ -12,9 +12,19 @@ class TerritoryAdmin(admin.ModelAdmin):
 
 @admin.register(Prospect)
 class ProspectAdmin(admin.ModelAdmin):
-    list_display = ("name", "tenant", "territory", "industry", "city", "status", "verified_at")
+    list_display = ("name", "tenant", "territory", "industry", "city", "instagram_handle", "discovery_score", "status", "verified_at")
     list_filter = ("tenant", "status", "industry", "region")
     search_fields = ("name", "email", "phone", "website")
+    readonly_fields = ("instagram_handle", "discovery_score")
+
+
+@admin.register(DiscoveryRun)
+class DiscoveryRunAdmin(admin.ModelAdmin):
+    list_display = ("tenant", "status", "started_at", "finished_at", "profiles_found", "prospects_created")
+    readonly_fields = ("tenant", "status", "started_at", "finished_at", "hashtags", "profiles_found", "prospects_created", "error")
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(Opportunity)

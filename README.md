@@ -1,6 +1,6 @@
 # MAGAVI — Inteligencia Comercial Territorial
 
-Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación Excel/CSV revisable, solicitudes públicas de contacto/cotización, pedidos con pago por coordinar, cotizaciones emitibles desde esas solicitudes, registro manual de prospectos, matching comercial explicable, un área privada protegida, Django Admin y health check. **No incluye todavía pago en línea ni inteligencia artificial.**
+Base técnica ejecutable del MVP MAGAVI. Esta entrega incorpora una PWA React, una API Django REST Framework, PostgreSQL, resolución multiempresa por hostname, landing pública por empresa, catálogo comercial con importación Excel/CSV revisable, solicitudes públicas de contacto/cotización, pedidos con pago por coordinar, cotizaciones emitibles desde esas solicitudes, prospectos, matching comercial explicable, búsqueda automática opcional de prospectos en Instagram con IA, un área privada protegida, Django Admin y health check. **No incluye pago en línea.**
 
 ## Arquitectura
 
@@ -20,14 +20,14 @@ Navegador ──► Django + DRF + WhiteNoise ──► PostgreSQL
 - `backend/apps/catalog/`: categorías y productos comerciales aislados por tenant.
 - `backend/apps/health/`: comprobación pública y mínima de aplicación/base de datos.
 - `backend/apps/inquiries/`: solicitudes, cotizaciones y pedidos aislados por tenant.
-- `backend/apps/prospecting/`: registro manual, revisión y detección asistida de duplicados de prospectos por tenant.
+- `backend/apps/prospecting/`: registro manual y descubrimiento automático opcional de prospectos, revisión y matching por tenant.
 - `backend/apps/tenancy/`: tenants, membresías, dominios, resolución segura, permisos y API pública/privada.
 - `Dockerfile`: build multi-stage; compila React y crea una imagen Python no privilegiada.
 - `render.yaml`: un Web Service gratuito y una PostgreSQL gratuita.
 - `scripts/start.sh`: aplica migraciones y ejecuta Gunicorn.
 - `docs/`: línea base funcional y plan incremental.
 
-No se usan Next.js, FastAPI, Redis, Celery, workers, scheduler, PostGIS, pgvector ni servicios externos de IA.
+No se usan Next.js, FastAPI, Redis, Celery, workers, PostGIS ni pgvector. La tarea programada de GitHub Actions llama al servicio en Render cuando se configuran sus secretos.
 
 ## Requisitos locales
 
@@ -68,6 +68,14 @@ Variables principales:
 | `CSRF_COOKIE_SECURE` | Cookie CSRF solo HTTPS en producción |
 
 No se deben registrar ni confirmar secretos, datos personales, RUT, documentos tributarios o información real de empresas.
+
+### Descubrimiento automático de prospectos en Instagram
+
+La función es opcional y se activa cuando el operador configura en **Render → magavi-web → Environment** `APIFY_TOKEN`, `OPENAI_API_KEY` y `AUTOMATION_TOKEN` (una cadena aleatoria larga). El extractor por defecto es el actor de Apify `apify~instagram-scraper`; se puede cambiar con `APIFY_INSTAGRAM_ACTOR_ID`. La búsqueda y clasificación consumen servicios externos y pueden generar cargos en sus respectivas cuentas. La aplicación no revela las claves en `/app`.
+
+En **GitHub → Settings → Secrets and variables → Actions**, crear el secreto `MAGAVI_AUTOMATION_TOKEN` con el **mismo valor** de `AUTOMATION_TOKEN` de Render. La variable opcional `MAGAVI_BASE_URL` permite reemplazar la URL pública de Render. Tras configurar las claves, el owner o admin activa una vez la búsqueda en **/app → Prospectos**. El workflow `Instagram discovery` se ejecuta cada seis horas y procesa una empresa habilitada y pendiente por ejecución; también admite `workflow_dispatch` para una prueba inicial. Las búsquedas completadas se espacian al menos 20 horas por empresa, con máximo dos hashtags y doce perfiles analizados por ejecución. Si no hay productos disponibles, no consulta proveedores externos.
+
+La IA propone hashtags a partir de productos y territorios activos, el extractor obtiene publicaciones públicas asociadas, y la IA filtra perfiles comerciales con una razón y una puntuación. Se guardan solo perfiles con evidencia comercial y puntuación de al menos 60/100. Los prospectos se deduplican por cuenta de Instagram dentro de cada empresa. La información pública y la razón del hallazgo aparecen en **/app → Prospectos**; allí también se ve el estado de la última búsqueda. El proceso no envía mensajes ni valida pagos. La cobertura depende de los resultados reales que entregue el extractor; probar el actor con el catálogo de la empresa antes de considerar el descubrimiento operativo.
 
 ## Desarrollo del backend
 

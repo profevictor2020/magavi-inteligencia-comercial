@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     GenerateOpportunitiesView,
+    DiscoveryStatusView,
+    ScheduledDiscoveryView,
     OpportunityDetailView,
     OpportunityListView,
     ProspectDetailView,
@@ -11,6 +13,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path("discovery/", DiscoveryStatusView.as_view(), name="prospect-discovery-status"),
+    path("discovery/run/", ScheduledDiscoveryView.as_view(), name="prospect-discovery-run"),
     path("territories/", TerritoryListCreateView.as_view(), name="territory-list"),
     path("territories/<uuid:pk>/", TerritoryDetailView.as_view(), name="territory-detail"),
     path("opportunities/", OpportunityListView.as_view(), name="opportunity-list"),
