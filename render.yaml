@@ -40,16 +40,3 @@ services:
         value: "2"
       - key: GUNICORN_TIMEOUT
         value: "120"
-  - type: cron
-    name: magavi-instagram-discovery
-    runtime: docker
-    plan: starter
-    schedule: "*/15 * * * *"
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    dockerCommand: python /app/scripts/trigger_discovery.py
-    envVars:
-      - key: AUTOMATION_TOKEN
-        sync: false
-      - key: MAGAVI_BASE_URL
-        value: https://magavi-web-vaaa.onrender.com
