@@ -192,7 +192,7 @@ def run_tenant_discovery(tenant, *, force=False):
         run.status = DiscoveryRun.Status.RUNNING
         run.started_at = now
         run.error = ""
-        run.save()
+        run.save(update_fields=["status", "started_at", "error"])
     try:
         products, territories = _catalog_context(tenant)
         if not products:
@@ -212,11 +212,11 @@ def run_tenant_discovery(tenant, *, force=False):
             run.profiles_found = len(profiles)
             run.prospects_created = created
         run.finished_at = timezone.now()
-        run.save()
+        run.save(update_fields=["status", "finished_at", "hashtags", "profiles_found", "prospects_created"])
         return {"status": run.status, "created": run.prospects_created, "profiles_found": run.profiles_found}
     except Exception as error:
         run.status = DiscoveryRun.Status.FAILED
         run.error = str(error)[:250] if isinstance(error, DiscoveryError) else "Falló la búsqueda automática. Revisa los registros del servidor."
         run.finished_at = timezone.now()
-        run.save()
+        run.save(update_fields=["status", "error", "finished_at"])
         raise
