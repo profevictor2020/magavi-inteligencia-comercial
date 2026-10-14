@@ -20,6 +20,16 @@ class Migration(migrations.Migration):
             name='mindcase_submission_attempted',
             field=models.BooleanField(default=False),
         ),
+        migrations.AddField(
+            model_name='discoveryrun',
+            name='mindcase_submitted_at',
+            field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name='discoveryrun',
+            name='mindcase_last_polled_at',
+            field=models.DateTimeField(blank=True, null=True),
+        ),
         migrations.AlterField(
             model_name='discoveryrun',
             name='status',

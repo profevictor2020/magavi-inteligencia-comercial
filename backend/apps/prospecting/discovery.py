@@ -21,7 +21,8 @@ from .serializers import normalized_domain
 MAX_HASHTAGS = 2
 MAX_PROFILES = 12
 MINDCASE_PROFILES_URL = "https://api.mindcase.co/v1/data/instagram/profiles/run?wait=false"
-MINDCASE_JOB_URL = "https://api.mindcase.co/v1/jobs/{job_id}/results"
+MINDCASE_JOB_STATUS_URL = "https://api.mindcase.co/api/v1/jobs/{job_id}"
+MINDCASE_JOB_RESULTS_URL = "https://api.mindcase.co/api/v1/jobs/{job_id}/results"
 MINDCASE_JOB_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,100}$")
 HANDLE_PATTERN = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 HASHTAG_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,40}$")
@@ -34,6 +35,22 @@ class DiscoveryError(Exception):
 
 class MindcaseTerminalError(DiscoveryError):
     pass
+
+
+def mindcase_poll_interval():
+    try:
+        minutes = int(os.getenv("MINDCASE_POLL_INTERVAL_MINUTES", "15"))
+    except ValueError:
+        minutes = 15
+    return timedelta(minutes=min(max(minutes, 5), 120))
+
+
+def mindcase_max_wait():
+    try:
+        hours = int(os.getenv("MINDCASE_JOB_MAX_WAIT_HOURS", "24"))
+    except ValueError:
+        hours = 24
+    return timedelta(hours=min(max(hours, 1), 72))
 
 
 def configured():
@@ -184,27 +201,32 @@ def _start_mindcase_job(query):
     return job_id, response
 
 
-def _mindcase_result(response):
+def _mindcase_status(response):
+    if not isinstance(response, dict):
+        raise DiscoveryError("Mindcase devolvió un estado de ejecución incompleto.")
     status = str(response.get("status") or "").lower()
-    if status in {"completed", "succeeded", "success"}:
-        rows = response.get("data")
-        if not isinstance(rows, list):
-            raise DiscoveryError("Mindcase terminó sin entregar una lista de perfiles.")
-        return rows
-    if status in {"failed", "cancelled", "canceled", "rejected_balance"}:
+    if status in {"failed", "cancelled"}:
         raise MindcaseTerminalError(f"Mindcase terminó la ejecución con estado {status}.")
-    if status in {"queued", "pending", "running", "processing", "in_progress"}:
-        return None
+    if status in {"queued", "running", "completed"}:
+        return status
     raise DiscoveryError("Mindcase devolvió un estado de ejecución desconocido.")
 
 
 def _read_mindcase_job(job_id):
     if not MINDCASE_JOB_PATTERN.fullmatch(job_id):
         raise DiscoveryError("El identificador de ejecución de Mindcase no es válido.")
-    response = _get_json(MINDCASE_JOB_URL.format(job_id=job_id), os.environ["MINDCASE_API_KEY"], timeout=20)
-    if not isinstance(response, dict):
-        raise DiscoveryError("Mindcase devolvió un formato de ejecución inesperado.")
-    return _mindcase_result(response)
+    key = os.environ["MINDCASE_API_KEY"]
+    response = _get_json(MINDCASE_JOB_STATUS_URL.format(job_id=job_id), key, timeout=20)
+    if isinstance(response, dict) and response.get("job_id", response.get("id", job_id)) != job_id:
+        raise DiscoveryError("Mindcase devolvió otro identificador de ejecución.")
+    if _mindcase_status(response) != "completed":
+        return None
+    results = _get_json(MINDCASE_JOB_RESULTS_URL.format(job_id=job_id), key, timeout=20)
+    if not isinstance(results, dict) or not isinstance(results.get("data"), list):
+        raise DiscoveryError("Mindcase terminó sin entregar una lista de perfiles.")
+    if results.get("status") and _mindcase_status(results) != "completed":
+        raise DiscoveryError("Mindcase todavía no entregó los perfiles completos.")
+    return results["data"]
 
 
 def _normalize_mindcase_profiles(items, search_term):
@@ -213,22 +235,22 @@ def _normalize_mindcase_profiles(items, search_term):
         raise DiscoveryError("Mindcase devolvió un formato de perfiles inesperado.")
     profiles = {}
     for item in items:
-        if not isinstance(item, dict) or item.get("private") is True:
+        if not isinstance(item, dict) or item.get("private", item.get("Private")) is True:
             continue
-        handle = str(item.get("username") or "").strip().lstrip("@").lower()
+        handle = str(item.get("username") or item.get("Username") or "").strip().lstrip("@").lower()
         if not HANDLE_PATTERN.fullmatch(handle):
             continue
         profile = profiles.setdefault(handle, {
             "username": handle,
-            "name": str(item.get("fullName") or handle)[:180],
-            "bio": str(item.get("bio") or "")[:450],
-            "business_category": str(item.get("businessCategory") or "")[:120],
-            "business_city": str(item.get("businessCity") or "")[:120],
-            "business_account": item.get("businessAccount") is True,
+            "name": str(item.get("fullName") or item.get("Full Name") or handle)[:180],
+            "bio": str(item.get("bio") or item.get("Bio") or "")[:450],
+            "business_category": str(item.get("businessCategory") or item.get("Business Category") or "")[:120],
+            "business_city": str(item.get("businessCity") or item.get("Business City") or "")[:120],
+            "business_account": item.get("businessAccount", item.get("Business Account")) is True,
             "posts": [],
             "search_terms": [search_term],
         })
-        recent_posts = item.get("recentPosts")
+        recent_posts = item.get("recentPosts", item.get("latestPosts", item.get("Latest Posts")))
         if not isinstance(recent_posts, list):
             continue
         for post in recent_posts:
@@ -323,11 +345,17 @@ def run_tenant_discovery(tenant, *, force=False):
         if run.status == DiscoveryRun.Status.COMPLETED:
             run.mindcase_job_id = ""
             run.mindcase_submission_attempted = False
+            run.mindcase_submitted_at = None
+            run.mindcase_last_polled_at = None
+        elif (run.mindcase_job_id and run.mindcase_last_polled_at
+              and now - run.mindcase_last_polled_at < mindcase_poll_interval()
+              and (not run.mindcase_submitted_at or now - run.mindcase_submitted_at < mindcase_max_wait())):
+            return {"status": "poll_not_due", "created": 0}
         run.status = DiscoveryRun.Status.RUNNING
         run.started_at = now
         run.finished_at = None
         run.error = ""
-        run.save(update_fields=["status", "started_at", "finished_at", "error", "mindcase_job_id", "mindcase_submission_attempted"])
+        run.save(update_fields=["status", "started_at", "finished_at", "error", "mindcase_job_id", "mindcase_submission_attempted", "mindcase_submitted_at", "mindcase_last_polled_at"])
     try:
         products, territories = _catalog_context(tenant)
         if not products:
@@ -339,17 +367,31 @@ def run_tenant_discovery(tenant, *, force=False):
             if os.getenv("MINDCASE_API_KEY"):
                 if run.mindcase_job_id:
                     search_terms = run.hashtags
+                    if run.mindcase_submitted_at and timezone.now() - run.mindcase_submitted_at >= mindcase_max_wait():
+                        raise MindcaseTerminalError("Mindcase no completó la ejecución dentro del tiempo máximo configurado.")
+                    run.mindcase_last_polled_at = timezone.now()
+                    run.save(update_fields=["mindcase_last_polled_at"])
                     items = _read_mindcase_job(run.mindcase_job_id)
                 else:
                     search_terms = [_choose_mindcase_query(products, territories)]
                     run.hashtags = search_terms
                     run.mindcase_submission_attempted = True
-                    run.save(update_fields=["hashtags", "mindcase_submission_attempted"])
+                    run.mindcase_submitted_at = timezone.now()
+                    run.save(update_fields=["hashtags", "mindcase_submission_attempted", "mindcase_submitted_at"])
                     job_id, response = _start_mindcase_job(search_terms[0])
                     run.mindcase_job_id = job_id
                     run.mindcase_submission_attempted = bool(job_id)
                     run.save(update_fields=["mindcase_job_id", "mindcase_submission_attempted"])
-                    items = _mindcase_result(response) if isinstance(response, dict) else response
+                    if isinstance(response, dict):
+                        state = _mindcase_status(response)
+                        if state == "completed":
+                            run.mindcase_last_polled_at = timezone.now()
+                            run.save(update_fields=["mindcase_last_polled_at"])
+                            items = _read_mindcase_job(job_id)
+                        else:
+                            items = None
+                    else:
+                        items = response
                 if items is None:
                     run.status = DiscoveryRun.Status.PENDING
                     run.save(update_fields=["status"])

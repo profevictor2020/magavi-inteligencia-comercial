@@ -84,6 +84,8 @@ class DiscoveryRun(models.Model):
     error = models.CharField(max_length=250, blank=True)
     mindcase_job_id = models.CharField(max_length=100, blank=True)
     mindcase_submission_attempted = models.BooleanField(default=False)
+    mindcase_submitted_at = models.DateTimeField(null=True, blank=True)
+    mindcase_last_polled_at = models.DateTimeField(null=True, blank=True)
 
 
 class Opportunity(models.Model):

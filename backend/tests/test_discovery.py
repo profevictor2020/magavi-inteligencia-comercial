@@ -1,4 +1,5 @@
 import json
+from datetime import timedelta
 from io import BytesIO
 from urllib.error import HTTPError, URLError
 
@@ -121,6 +122,17 @@ def test_mindcase_profile_response_preserves_public_business_evidence():
     }]
 
 
+def test_mindcase_sdk_column_names_are_normalized():
+    profiles = discovery._normalize_mindcase_profiles([
+        {"Username": "sushi_real", "Full Name": "Sushi Real", "Bio": "Restaurante en Santiago",
+         "Business Account": True, "Business Category": "Restaurant", "Private": False,
+         "Latest Posts": [{"caption": "Servimos camarones"}]},
+    ], "sushi Santiago")
+    assert profiles[0]["username"] == "sushi_real"
+    assert profiles[0]["business_account"] is True
+    assert profiles[0]["posts"] == ["Servimos camarones"]
+
+
 def test_ai_json_uses_deepseek_without_openai_key(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -181,6 +193,18 @@ def test_mindcase_timeout_identifies_provider_and_wait(monkeypatch, failure):
         discovery._post_json(discovery.MINDCASE_PROFILES_URL, {"params": {"query": "sushi Santiago"}}, "test-token", timeout=20)
 
 
+def test_mindcase_status_timeout_uses_get_without_exposing_key(monkeypatch):
+    def fail_request(request, timeout):
+        assert request.get_method() == "GET"
+        assert request.full_url == discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678")
+        raise TimeoutError()
+
+    monkeypatch.setattr(discovery, "urlopen", fail_request)
+    with pytest.raises(discovery.DiscoveryError, match="api.mindcase.co agotó el tiempo de espera de 20 segundos") as raised:
+        discovery._get_json(discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678"), "test-secret", timeout=20)
+    assert "test-secret" not in str(raised.value)
+
+
 @pytest.mark.django_db
 def test_mindcase_job_is_reused_until_results_arrive(monkeypatch, discovery_company):
     tenant, _ = discovery_company
@@ -205,9 +229,10 @@ def test_mindcase_job_is_reused_until_results_arrive(monkeypatch, discovery_comp
 
     def fake_get(url, bearer, timeout=20):
         reads.append((url, bearer, timeout))
-        if len(reads) == 1:
-            return {"job_id": "job_12345678", "status": "running"}
-        return {"job_id": "job_12345678", "status": "completed", "data": [
+        if url == discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678"):
+            return {"job_id": "job_12345678", "status": "running" if len(reads) == 1 else "completed"}
+        assert url == discovery.MINDCASE_JOB_RESULTS_URL.format(job_id="job_12345678")
+        return {"status": "completed", "row_count": 1, "data": [
             {"username": "sushi_real", "fullName": "Sushi Real", "bio": "Sushi en Santiago",
              "businessCity": "Santiago", "private": False,
              "recentPosts": [{"caption": "Servimos camarones"}]},
@@ -218,9 +243,17 @@ def test_mindcase_job_is_reused_until_results_arrive(monkeypatch, discovery_comp
     monkeypatch.setattr(discovery, "_get_json", fake_get)
     assert discovery.run_tenant_discovery(tenant)["status"] == "PENDING"
     assert discovery.run_tenant_discovery(tenant)["status"] == "PENDING"
+    assert discovery.run_tenant_discovery(tenant)["status"] == "poll_not_due"
+    run = DiscoveryRun.objects.get(tenant=tenant)
+    run.mindcase_last_polled_at = timezone.now() - timedelta(minutes=16)
+    run.save(update_fields=["mindcase_last_polled_at"])
     assert discovery.run_tenant_discovery(tenant) == {"status": "COMPLETED", "created": 1, "profiles_found": 1}
     assert calls == [(discovery.MINDCASE_PROFILES_URL, {"params": {"query": "sushi Santiago"}}, "test-mindcase-token", 20)]
-    assert reads == [(discovery.MINDCASE_JOB_URL.format(job_id="job_12345678"), "test-mindcase-token", 20)] * 2
+    assert reads == [
+        (discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678"), "test-mindcase-token", 20),
+        (discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678"), "test-mindcase-token", 20),
+        (discovery.MINDCASE_JOB_RESULTS_URL.format(job_id="job_12345678"), "test-mindcase-token", 20),
+    ]
     assert Prospect.objects.get(tenant=tenant).city == "Santiago"
     run = DiscoveryRun.objects.get(tenant=tenant)
     assert run.hashtags == ["sushi Santiago"]
@@ -269,6 +302,74 @@ def test_unconfirmed_mindcase_submission_pauses_and_cannot_resubmit(monkeypatch,
     client.force_authenticate(user)
     response = client.patch(reverse("prospect-discovery-status"), {"enabled": True}, format="json", HTTP_HOST="marina.localhost")
     assert response.status_code == 409
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("provider_status", ["failed", "cancelled"])
+def test_terminal_mindcase_job_stops_polling_without_new_submission(monkeypatch, discovery_company, provider_status):
+    tenant, _ = discovery_company
+    run = DiscoveryRun.objects.create(
+        tenant=tenant, enabled=True, status=DiscoveryRun.Status.PENDING,
+        mindcase_job_id="job_12345678", mindcase_submission_attempted=True,
+        mindcase_submitted_at=timezone.now(), hashtags=["sushi Santiago"],
+    )
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    monkeypatch.setattr(discovery, "_post_json", lambda *args, **kwargs: pytest.fail("No se debe crear otro job"))
+    monkeypatch.setattr(discovery, "_get_json", lambda *args, **kwargs: {"job_id": "job_12345678", "status": provider_status})
+    with pytest.raises(discovery.MindcaseTerminalError):
+        discovery.run_tenant_discovery(tenant)
+    run.refresh_from_db()
+    assert run.status == DiscoveryRun.Status.FAILED
+    assert run.enabled is False
+    assert run.mindcase_job_id == "job_12345678"
+
+
+@pytest.mark.django_db
+def test_incomplete_mindcase_results_keep_job_id_for_retry(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    run = DiscoveryRun.objects.create(
+        tenant=tenant, enabled=True, status=DiscoveryRun.Status.PENDING,
+        mindcase_job_id="job_12345678", mindcase_submission_attempted=True,
+        mindcase_submitted_at=timezone.now(), hashtags=["sushi Santiago"],
+    )
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    monkeypatch.setattr(discovery, "_post_json", lambda *args, **kwargs: pytest.fail("No se debe crear otro job"))
+    urls = []
+
+    def fake_get(url, *args, **kwargs):
+        urls.append(url)
+        return {"status": "completed"}
+
+    monkeypatch.setattr(discovery, "_get_json", fake_get)
+    with pytest.raises(discovery.DiscoveryError, match="sin entregar una lista"):
+        discovery.run_tenant_discovery(tenant)
+    run.refresh_from_db()
+    assert run.mindcase_job_id == "job_12345678"
+    assert run.enabled is True
+    assert urls == [
+        discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678"),
+        discovery.MINDCASE_JOB_RESULTS_URL.format(job_id="job_12345678"),
+    ]
+
+
+@pytest.mark.django_db
+def test_mindcase_job_max_wait_stops_polling(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    run = DiscoveryRun.objects.create(
+        tenant=tenant, enabled=True, status=DiscoveryRun.Status.PENDING,
+        mindcase_job_id="job_12345678", mindcase_submission_attempted=True,
+        mindcase_submitted_at=timezone.now() - timedelta(hours=25), hashtags=["sushi Santiago"],
+    )
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    monkeypatch.setattr(discovery, "_get_json", lambda *args, **kwargs: pytest.fail("No se debe consultar un job vencido"))
+    with pytest.raises(discovery.MindcaseTerminalError, match="tiempo máximo"):
+        discovery.run_tenant_discovery(tenant)
+    run.refresh_from_db()
+    assert run.enabled is False
+    assert run.mindcase_job_id == "job_12345678"
 
 
 @pytest.mark.django_db
