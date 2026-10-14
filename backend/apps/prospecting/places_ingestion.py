@@ -1,5 +1,8 @@
 """Persist previously obtained Google Maps Places rows without making API calls."""
 
+import re
+from urllib.parse import urlsplit
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -7,8 +10,59 @@ from apps.tenancy.models import Tenant
 
 from .chile import normalized_location, suggested_localities
 from .google_places import PlacesProviderError, normalize_place
-from .models import DiscoveryJob, DiscoveryObservation, GooglePlaceRecord, Prospect, Territory
+from .models import DiscoveryJob, DiscoveryObservation, GooglePlaceRecord, Prospect, SocialIdentity, Territory
+from .place_categories import category_rejection, resolve_category_families
 from .territory_matching import matching_territory
+
+
+def prepare_places_job(tenant, territory_id, *, keywords, locality, category_families=None):
+    """Create a bounded, tenant-owned ledger entry; never submits a paid request."""
+    territory = Territory.objects.filter(tenant=tenant, is_active=True).filter(pk=territory_id).first()
+    if territory is None or not territory.region:
+        raise PlacesProviderError("Selecciona un territorio activo de esta empresa con región.")
+    allowed = territory.localities or suggested_localities(territory.region)
+    if not locality or normalized_location(locality) not in {normalized_location(city) for city in allowed}:
+        raise PlacesProviderError("La localidad no pertenece al territorio seleccionado.")
+    if not isinstance(keywords, str) or not keywords.strip():
+        raise PlacesProviderError("Indica el rubro de negocios que quieres buscar.")
+    families = resolve_category_families(keywords, [] if category_families is None else category_families)
+    if not families:
+        raise PlacesProviderError("Configura al menos un rubro comercial para esta búsqueda.")
+    return DiscoveryJob.objects.create(
+        tenant=tenant, territory=territory, keywords=keywords.strip(),
+        location=f"{locality.strip()}, {territory.region}, Chile",
+        category_families=list(families), max_results=1, max_images=0,
+    )
+
+
+@transaction.atomic
+def record_social_candidate(tenant, prospect_id, *, handle, evidence_url):
+    """Record an unverified Instagram candidate only under its own company."""
+    prospect = Prospect.objects.filter(tenant=tenant, pk=prospect_id).first()
+    if prospect is None:
+        raise PlacesProviderError("El prospecto no pertenece a esta empresa.")
+    normalized_handle = str(handle or "").strip().lstrip("@").lower()
+    if not re.fullmatch(r"[a-z0-9._]{1,30}", normalized_handle):
+        raise PlacesProviderError("La cuenta de Instagram no es válida.")
+    try:
+        evidence = urlsplit(evidence_url)
+    except (TypeError, ValueError) as error:
+        raise PlacesProviderError("La URL de evidencia no es válida.") from error
+    if evidence.scheme != "https" or not evidence.hostname or len(evidence_url) > 500:
+        raise PlacesProviderError("La evidencia debe ser una URL HTTPS.")
+    existing = SocialIdentity.objects.select_for_update().filter(
+        tenant=tenant, platform="instagram", handle=normalized_handle,
+    ).first()
+    if existing:
+        if existing.prospect_id != prospect.id:
+            raise PlacesProviderError("La cuenta ya está asociada a otro prospecto de esta empresa.")
+        return existing
+    return SocialIdentity.objects.create(
+        tenant=tenant, prospect=prospect, platform="instagram", handle=normalized_handle,
+        profile_url=f"https://www.instagram.com/{normalized_handle}/",
+        verification=SocialIdentity.Verification.CANDIDATE,
+        evidence_url=evidence_url, evidence_source="enlace declarado pendiente de verificar",
+    )
 
 
 def _rejection(place, job, territory):
@@ -31,15 +85,17 @@ def _rejection(place, job, territory):
         return "La ciudad está fuera de la localidad solicitada."
     if not place.category:
         return "Mindcase no entregó una categoría comercial."
-    return ""
+    return category_rejection(place, job.keywords, job.category_families)
 
 
 @transaction.atomic
-def ingest_places_results(job_id, rows):
+def ingest_places_results(tenant, job_id, rows):
     """Idempotently import an already available export for one tenant-bound job."""
     if not isinstance(rows, list):
         raise PlacesProviderError("La exportación de Places debe ser un array JSON.")
-    job = DiscoveryJob.objects.select_for_update().select_related("territory").get(pk=job_id)
+    job = DiscoveryJob.objects.select_for_update().select_related("territory").filter(tenant=tenant, pk=job_id).first()
+    if job is None:
+        raise PlacesProviderError("El job no pertenece a esta empresa.")
     if job.status == DiscoveryJob.Status.COMPLETED:
         return {"created": job.observations.filter(decision=DiscoveryObservation.Decision.CREATED).count(),
                 "existing": job.observations.filter(decision=DiscoveryObservation.Decision.EXISTING).count(),
@@ -49,6 +105,8 @@ def ingest_places_results(job_id, rows):
     territory = job.territory
     if territory.tenant_id != job.tenant_id or not territory.is_active:
         raise PlacesProviderError("El territorio de esta búsqueda no está activo en la empresa.")
+    if job.max_results != 1 or job.max_images != 0:
+        raise PlacesProviderError("La Fase 1 solo admite maxResults=1 y maxImages=0.")
     if len(rows) > job.max_results:
         raise PlacesProviderError("La exportación excede el límite de resultados del job.")
 

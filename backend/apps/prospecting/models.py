@@ -129,6 +129,7 @@ class DiscoveryJob(models.Model):
     provider = models.CharField(max_length=32, default="mindcase_google_maps_places", editable=False)
     keywords = models.CharField(max_length=180)
     location = models.CharField(max_length=240)
+    category_families = models.JSONField(default=list, blank=True)
     max_results = models.PositiveSmallIntegerField()
     max_images = models.PositiveSmallIntegerField(default=0)
     external_job_id = models.CharField(max_length=100, blank=True)

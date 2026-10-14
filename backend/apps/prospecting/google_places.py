@@ -13,7 +13,9 @@ PLACES_URL = "https://api.mindcase.co/v1/data/google-maps/places/run?wait=true"
 
 
 class PlacesProviderError(Exception):
-    pass
+    def __init__(self, message, *, submission_uncertain=False):
+        super().__init__(message)
+        self.submission_uncertain = submission_uncertain
 
 
 @dataclass(frozen=True)
@@ -121,7 +123,11 @@ class GoogleMapsPlacesProvider:
         return [normalize_place(row) for row in response]
 
     def run_sync(self, *, keywords, location, max_results=1):
-        """Explicit call only; Phase 1 never invokes it from a view or scheduler."""
+        """One explicit POST; an uncertain outcome must be reconciled, never retried.
+
+        Phase 1 does not invoke this from a view or scheduler. A timeout or
+        malformed 200 response may still represent a charged provider run.
+        """
         payload = self.payload(keywords=keywords, location=location, max_results=max_results)
         key = os.getenv("MINDCASE_API_KEY")
         if not key:
@@ -133,9 +139,16 @@ class GoogleMapsPlacesProvider:
             with urlopen(request, timeout=35) as response:
                 data = json.load(response)
         except HTTPError as error:
-            raise PlacesProviderError(f"Mindcase respondió HTTP {error.code}.") from error
+            raise PlacesProviderError(f"Mindcase respondió HTTP {error.code}.",
+                                      submission_uncertain=error.code >= 500 or error.code == 429) from error
         except (TimeoutError, URLError) as error:
-            raise PlacesProviderError("Mindcase no respondió a tiempo.") from error
+            raise PlacesProviderError("Mindcase no confirmó el resultado; revisa Run History antes de reintentar.",
+                                      submission_uncertain=True) from error
         except (ValueError, UnicodeError) as error:
-            raise PlacesProviderError("Mindcase devolvió JSON inválido.") from error
-        return self.normalize_results(data)
+            raise PlacesProviderError("Mindcase devolvió JSON inválido; revisa Run History antes de reintentar.",
+                                      submission_uncertain=True) from error
+        try:
+            return self.normalize_results(data)
+        except PlacesProviderError as error:
+            raise PlacesProviderError("Mindcase devolvió un formato inesperado; revisa Run History antes de reintentar.",
+                                      submission_uncertain=True) from error
