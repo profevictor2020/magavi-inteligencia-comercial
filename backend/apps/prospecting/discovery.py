@@ -217,8 +217,8 @@ def _read_mindcase_job(job_id):
         raise DiscoveryError("El identificador de ejecución de Mindcase no es válido.")
     key = os.environ["MINDCASE_API_KEY"]
     response = _get_json(MINDCASE_JOB_STATUS_URL.format(job_id=job_id), key, timeout=20)
-    if isinstance(response, dict) and response.get("job_id", response.get("id", job_id)) != job_id:
-        raise DiscoveryError("Mindcase devolvió otro identificador de ejecución.")
+    if not isinstance(response, dict) or (response.get("id") or response.get("job_id")) != job_id:
+        raise DiscoveryError("Mindcase no confirmó el identificador de esta ejecución.")
     if _mindcase_status(response) != "completed":
         return None
     results = _get_json(MINDCASE_JOB_RESULTS_URL.format(job_id=job_id), key, timeout=20)
