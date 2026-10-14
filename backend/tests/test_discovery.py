@@ -86,6 +86,7 @@ def test_discovery_status_is_tenant_private_and_trigger_requires_secret(monkeypa
     enabled = client.patch(status_url, {"enabled": True}, format="json", HTTP_HOST="marina.localhost")
     assert enabled.status_code == 200
     assert enabled.json()["enabled"] is True
+    assert enabled.json()["status"] == "NOT_STARTED"
 
     monkeypatch.setattr(discovery, "_choose_hashtags", lambda products, territories: ["sushisantiago"])
     monkeypatch.setattr(discovery, "_search_profiles", lambda hashtags: [])
