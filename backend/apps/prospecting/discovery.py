@@ -1,4 +1,4 @@
-"""Tenant-isolated Instagram discovery using Mindcase or Apify and OpenAI."""
+"""Tenant-isolated Instagram discovery using Mindcase or Apify and an AI provider."""
 
 import json
 import os
@@ -31,7 +31,8 @@ class DiscoveryError(Exception):
 
 
 def configured():
-    return bool((os.getenv("MINDCASE_API_KEY") or os.getenv("APIFY_TOKEN")) and os.getenv("OPENAI_API_KEY"))
+    return bool((os.getenv("MINDCASE_API_KEY") or os.getenv("APIFY_TOKEN"))
+                and (os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")))
 
 
 def _post_json(url, payload, bearer, timeout=35):
@@ -46,6 +47,10 @@ def _post_json(url, payload, bearer, timeout=35):
             return json.load(response)
     except HTTPError as error:
         host = urlsplit(url).hostname
+        if host == "api.deepseek.com" and error.code == 402:
+            raise DiscoveryError("DeepSeek no tiene saldo de API disponible. Revisa la facturación en DeepSeek Platform.") from error
+        if host == "api.deepseek.com" and error.code == 429:
+            raise DiscoveryError("DeepSeek alcanzó un límite de la API. Revisa el saldo y los límites de solicitudes en DeepSeek Platform.") from error
         if host == "api.openai.com" and error.code == 429:
             try:
                 error_body = json.loads(error.read(4096))
@@ -64,12 +69,20 @@ def _post_json(url, payload, bearer, timeout=35):
 
 
 def _ai_json(system, data):
+    if os.getenv("DEEPSEEK_API_KEY"):
+        url = "https://api.deepseek.com/chat/completions"
+        model = os.getenv("DEEPSEEK_DISCOVERY_MODEL", "deepseek-chat")
+        key = os.environ["DEEPSEEK_API_KEY"]
+    else:
+        url = "https://api.openai.com/v1/chat/completions"
+        model = os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-4o-mini")
+        key = os.environ["OPENAI_API_KEY"]
     response = _post_json(
-        "https://api.openai.com/v1/chat/completions",
-        {"model": os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-4o-mini"), "temperature": 0,
+        url,
+        {"model": model, "temperature": 0,
          "response_format": {"type": "json_object"},
          "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]},
-        os.environ["OPENAI_API_KEY"], timeout=20,
+        key, timeout=20,
     )
     try:
         return json.loads(response["choices"][0]["message"]["content"])
@@ -247,7 +260,7 @@ def _save_prospects(tenant, profiles, qualified, territories):
 
 def run_tenant_discovery(tenant, *, force=False):
     if not configured():
-        raise DiscoveryError("Faltan OPENAI_API_KEY y una clave de Mindcase o Apify.")
+        raise DiscoveryError("Faltan una clave de Mindcase o Apify y una clave de DeepSeek u OpenAI.")
     with transaction.atomic():
         run, _ = DiscoveryRun.objects.select_for_update().get_or_create(tenant=tenant)
         now = timezone.now()
