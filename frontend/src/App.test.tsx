@@ -220,6 +220,26 @@ describe('multi-tenant application routes', () => {
     expect(fetch).toHaveBeenCalledWith('/api/prospects/discovery/', expect.objectContaining({ method: 'PATCH', body: '{"enabled":true}' }))
   })
 
+  it('shows why an Instagram profile was not selected', async () => {
+    window.history.replaceState({}, '', '/app/')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.includes('/discovery/evaluations/') ? { total: 1, results: [{ id: 'evaluation-1', batch_id: 'batch-1', username: 'cuenta_personal', name: 'Cuenta personal', search_term: 'cafeterías Chile', decision: 'REJECTED', score: 15, reason: 'La IA no encontró señales de negocio comprador.', evaluated_at: '2026-10-14T14:51:15Z' }] }
+            : url.endsWith('/prospects/discovery/') ? { configured: true, enabled: false, status: 'COMPLETED', finished_at: '2026-10-14T14:51:15Z', hashtags: [], profiles_found: 1, prospects_created: 0, error: '', mindcase_job_id: 'job-1' }
+              : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Prospectos/ }))
+    fireEvent.click(await screen.findByText('Perfiles evaluados'))
+    expect(await screen.findByText('La IA no encontró señales de negocio comprador.')).toBeInTheDocument()
+    expect(screen.getByText('No seleccionado')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Ver Instagram ↗' })).toHaveAttribute('href', 'https://www.instagram.com/cuenta_personal/')
+  })
+
   it('filters a larger catalog while keeping the selected products', async () => {
     const products = [companyA.products[0], ...Array.from({ length: 13 }, (_, index) => ({ ...companyA.products[0], id: `product-${index + 2}`, name: `Producto ${index + 2}`, description: 'Repostería artesanal', sku: `P-${index + 2}`, category: 'Repostería' }))]
     mockJson({ ...companyA, products })

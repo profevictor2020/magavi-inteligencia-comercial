@@ -421,6 +421,21 @@ h1, h2, h3, p { margin-top: 0; }
 .discovery-panel-status strong { color: #0b665f; font-size: .82rem; }
 .discovery-panel-status span { color: #5b7176; font-size: .73rem; line-height: 1.4; }
 .prospect-grid article a { color: #0d766e; font-weight: 750; }
+.discovery-evaluations { margin: 0 0 24px; padding: 18px 20px; border: 1px solid #d7e4df; border-radius: 14px; background: #fff; }
+.discovery-evaluations summary { cursor: pointer; font-weight: 800; color: #18383a; }
+.discovery-evaluations summary span { margin-left: 8px; color: #0d766e; }
+.discovery-evaluations > p { color: #5b7176; font-size: .88rem; }
+.discovery-evaluation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.discovery-evaluation-grid article { padding: 16px; border: 1px solid #e0e8e5; border-radius: 12px; background: #f8faf9; }
+.discovery-evaluation-grid header, .discovery-evaluation-grid footer { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.discovery-evaluation-grid header div { display: grid; gap: 3px; }
+.discovery-evaluation-grid small, .discovery-evaluation-grid footer span { color: #62767a; font-size: .76rem; }
+.discovery-evaluation-grid p { margin: 13px 0; color: #435a60; line-height: 1.45; }
+.discovery-evaluation-grid a { color: #0d766e; font-weight: 750; }
+.discovery-decision { flex-shrink: 0; padding: 5px 9px; border-radius: 99px; background: #e5efeb; color: #0b665f; font-size: .7rem; font-weight: 800; }
+.decision-rejected, .decision-not_evaluated { background: #f5ece8; color: #8b513f; }
+.discovery-evaluations > button { margin-top: 16px; }
+@media (max-width: 720px) { .discovery-evaluation-grid { grid-template-columns: 1fr; } .discovery-evaluation-grid header { flex-wrap: wrap; } }
 @media (max-width: 620px) { .discovery-panel { align-items: stretch; flex-direction: column; } .discovery-panel-status { flex-basis: auto; } }
 .commercial-dashboard { display: grid; gap: 22px; }
 .dashboard-intro { display: flex; align-items: end; justify-content: space-between; gap: 18px; }

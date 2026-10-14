@@ -86,6 +86,30 @@ class DiscoveryRun(models.Model):
     mindcase_submission_attempted = models.BooleanField(default=False)
     mindcase_submitted_at = models.DateTimeField(null=True, blank=True)
     mindcase_last_polled_at = models.DateTimeField(null=True, blank=True)
+    evaluation_batch_id = models.UUIDField(null=True, blank=True)
+
+
+class DiscoveryEvaluation(models.Model):
+    class Decision(models.TextChoices):
+        CREATED = "CREATED", "Prospecto creado"
+        EXISTING = "EXISTING", "Prospecto existente"
+        REJECTED = "REJECTED", "No seleccionado"
+        NOT_EVALUATED = "NOT_EVALUATED", "Sin evaluación de IA"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tenant = models.ForeignKey("tenancy.Tenant", on_delete=models.CASCADE, related_name="discovery_evaluations")
+    batch_id = models.UUIDField()
+    username = models.CharField(max_length=30)
+    name = models.CharField(max_length=180)
+    search_term = models.CharField(max_length=80)
+    decision = models.CharField(max_length=16, choices=Decision.choices)
+    score = models.PositiveSmallIntegerField(null=True, blank=True)
+    reason = models.CharField(max_length=500, blank=True)
+    evaluated_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-evaluated_at", "username"]
+        constraints = [models.UniqueConstraint(fields=["tenant", "batch_id", "username"], name="unique_discovery_evaluation_per_batch")]
 
 
 class Opportunity(models.Model):

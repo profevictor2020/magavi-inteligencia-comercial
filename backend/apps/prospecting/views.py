@@ -15,7 +15,7 @@ from apps.tenancy.permissions import TenantRolePermission
 
 from .discovery import DiscoveryError, configured, mindcase_poll_interval, run_tenant_discovery
 from .matching import generate_opportunities
-from .models import DiscoveryRun, Opportunity, Prospect, Territory
+from .models import DiscoveryEvaluation, DiscoveryRun, Opportunity, Prospect, Territory
 from .serializers import OpportunitySerializer, ProspectSerializer, TerritorySerializer
 
 
@@ -143,6 +143,26 @@ class DiscoveryStatusView(APIView):
         run.enabled = enabled
         run.save(update_fields=["enabled"])
         return self.get(request)
+
+
+class DiscoveryEvaluationListView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def get(self, request):
+        try:
+            offset = max(0, int(request.query_params.get("offset", "0")))
+        except ValueError:
+            return Response({"offset": "Debe ser un número entero."}, status=status.HTTP_400_BAD_REQUEST)
+        offset = min(offset, 10000)
+        queryset = DiscoveryEvaluation.objects.filter(tenant=request.tenant).order_by("-evaluated_at", "username")
+        rows = queryset[offset:offset + 24]
+        return Response({
+            "total": queryset.count(),
+            "results": [{"id": str(row.id), "batch_id": str(row.batch_id), "username": row.username,
+                         "name": row.name, "search_term": row.search_term, "decision": row.decision,
+                         "score": row.score, "reason": row.reason, "evaluated_at": row.evaluated_at}
+                        for row in rows],
+        })
 
 
 class ScheduledDiscoveryView(APIView):

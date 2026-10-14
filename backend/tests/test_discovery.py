@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from apps.catalog.models import Category, IndustrySegment, Product
 from apps.prospecting import discovery
-from apps.prospecting.models import DiscoveryRun, Opportunity, Prospect, Territory
+from apps.prospecting.models import DiscoveryEvaluation, DiscoveryRun, Opportunity, Prospect, Territory
 from apps.prospecting.serializers import normalized_domain
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
@@ -67,6 +67,12 @@ def test_discovery_creates_only_relevant_profiles_and_deduplicates(monkeypatch, 
     assert discovery.run_tenant_discovery(tenant)["status"] == "already_completed"
     assert discovery.run_tenant_discovery(tenant, force=True)["created"] == 0
     assert Prospect.objects.count() == 1
+    evaluations = list(DiscoveryEvaluation.objects.filter(tenant=tenant))
+    assert len(evaluations) == 4
+    assert len({row.batch_id for row in evaluations}) == 2
+    assert {row.decision for row in evaluations if row.username == "sushi_real"} == {"CREATED", "EXISTING"}
+    assert all(row.decision == "REJECTED" and "no relevante" in row.reason
+               for row in evaluations if row.username == "usuario_personal")
 
 
 @pytest.mark.django_db
@@ -292,6 +298,47 @@ def test_mindcase_job_is_reused_until_results_arrive(monkeypatch, discovery_comp
     run = DiscoveryRun.objects.get(tenant=tenant)
     assert run.hashtags == ["sushi Santiago"]
     assert run.mindcase_job_id == "job_12345678"
+    assert DiscoveryEvaluation.objects.get(tenant=tenant, username="sushi_real").decision == DiscoveryEvaluation.Decision.CREATED
+
+
+@pytest.mark.django_db
+def test_discovery_evaluation_history_records_omissions_and_existing_profiles(monkeypatch, discovery_company):
+    tenant, user = discovery_company
+    monkeypatch.delenv("MINDCASE_API_KEY", raising=False)
+    monkeypatch.setenv("APIFY_TOKEN", "test-apify-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-token")
+    Prospect.objects.create(tenant=tenant, name="Sushi conocido", source="Manual", instagram_handle="conocido")
+    monkeypatch.setattr(discovery, "_choose_hashtags", lambda products, territories: ["sushisantiago"])
+    monkeypatch.setattr(discovery, "_search_profiles", lambda hashtags: [
+        {"username": handle, "name": handle, "bio": "", "business_category": "", "business_city": "", "business_account": True, "posts": [], "search_terms": hashtags}
+        for handle in ("conocido", "nuevo", "rechazado", "bajo", "omitido")
+    ])
+    monkeypatch.setattr(discovery, "_ai_json", lambda system, data: {"prospects": [
+        {"username": "conocido", "relevant": True, "score": 85, "industry": "FOOD_SERVICE", "reason": "Sirve mariscos.", "city": ""},
+        {"username": "nuevo", "relevant": True, "score": 90, "industry": "FOOD_SERVICE", "reason": "Compra camarones.", "city": ""},
+        {"username": "rechazado", "relevant": False, "score": 20, "industry": "", "reason": "Cuenta personal.", "city": ""},
+        {"username": "bajo", "relevant": True, "score": 45, "industry": "FOOD_SERVICE", "reason": "Señal comercial débil.", "city": ""},
+    ]})
+    assert discovery.run_tenant_discovery(tenant)["created"] == 1
+    rows = {row.username: row for row in DiscoveryEvaluation.objects.filter(tenant=tenant)}
+    assert {handle: row.decision for handle, row in rows.items()} == {
+        "conocido": "EXISTING", "nuevo": "CREATED", "rechazado": "REJECTED", "bajo": "REJECTED", "omitido": "NOT_EVALUATED",
+    }
+    assert rows["rechazado"].reason == "Cuenta personal."
+    assert "inferior al mínimo" in rows["bajo"].reason
+    assert rows["omitido"].score is None
+    assert len({row.batch_id for row in rows.values()}) == 1
+    client = APIClient()
+    client.force_authenticate(user)
+    response = client.get(reverse("prospect-discovery-evaluations"), HTTP_HOST="marina.localhost")
+    assert response.status_code == 200
+    assert response.json()["total"] == 5
+    assert len(response.json()["results"]) == 5
+    assert APIClient().get(reverse("prospect-discovery-evaluations"), HTTP_HOST="marina.localhost").status_code == 403
+    other_tenant = Tenant.objects.create(name="Otra", slug="otra", headline="Otra", logo_path="/b.svg")
+    DiscoveryEvaluation.objects.create(tenant=other_tenant, batch_id=rows["nuevo"].batch_id,
+                                       username="secreto", name="Secreto", search_term="secreto", decision="REJECTED")
+    assert client.get(reverse("prospect-discovery-evaluations"), HTTP_HOST="marina.localhost").json()["total"] == 5
 
 
 @pytest.mark.django_db
