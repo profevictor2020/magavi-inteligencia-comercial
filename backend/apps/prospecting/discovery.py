@@ -20,7 +20,10 @@ from .serializers import normalized_domain
 
 MAX_HASHTAGS = 2
 MAX_PROFILES = 12
-MINDCASE_PROFILES_URL = "https://api.mindcase.co/v1/data/instagram/profiles/run?wait=true"
+MINDCASE_PROFILES_URL = "https://api.mindcase.co/v1/data/instagram/profiles/run?wait=false"
+MINDCASE_JOB_STATUS_URL = "https://api.mindcase.co/api/v1/jobs/{job_id}"
+MINDCASE_JOB_RESULTS_URL = "https://api.mindcase.co/api/v1/jobs/{job_id}/results"
+MINDCASE_JOB_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,100}$")
 HANDLE_PATTERN = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 HASHTAG_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,40}$")
 QUERY_PATTERN = re.compile(r"^[\wÀ-ÿ .,'&/-]{4,80}$")
@@ -30,17 +33,37 @@ class DiscoveryError(Exception):
     pass
 
 
+class MindcaseTerminalError(DiscoveryError):
+    pass
+
+
+def mindcase_poll_interval():
+    try:
+        minutes = int(os.getenv("MINDCASE_POLL_INTERVAL_MINUTES", "15"))
+    except ValueError:
+        minutes = 15
+    return timedelta(minutes=min(max(minutes, 5), 120))
+
+
+def mindcase_max_wait():
+    try:
+        hours = int(os.getenv("MINDCASE_JOB_MAX_WAIT_HOURS", "24"))
+    except ValueError:
+        hours = 24
+    return timedelta(hours=min(max(hours, 1), 72))
+
+
 def configured():
     return bool((os.getenv("MINDCASE_API_KEY") or os.getenv("APIFY_TOKEN"))
                 and (os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")))
 
 
-def _post_json(url, payload, bearer, timeout=35):
+def _request_json(method, url, bearer, timeout, payload=None):
     request = Request(
         url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None,
         headers={"Authorization": f"Bearer {bearer}", "Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
+        method=method,
     )
     try:
         with urlopen(request, timeout=timeout) as response:
@@ -72,6 +95,14 @@ def _post_json(url, payload, bearer, timeout=35):
         raise DiscoveryError(f"{urlsplit(url).hostname} no respondió correctamente (URLError).") from error
     except ValueError as error:
         raise DiscoveryError(f"{urlsplit(url).hostname} devolvió una respuesta JSON inválida.") from error
+
+
+def _post_json(url, payload, bearer, timeout=35):
+    return _request_json("POST", url, bearer, timeout, payload)
+
+
+def _get_json(url, bearer, timeout=20):
+    return _request_json("GET", url, bearer, timeout)
 
 
 def _ai_json(system, data):
@@ -158,9 +189,44 @@ def _search_profiles(hashtags):
     return list(profiles.values())[:MAX_PROFILES]
 
 
-def _search_mindcase_profiles(query):
-    items = _post_json(MINDCASE_PROFILES_URL, {"params": {"query": query}}, os.environ["MINDCASE_API_KEY"], timeout=60)
-    return _normalize_mindcase_profiles(items, query)
+def _start_mindcase_job(query):
+    response = _post_json(MINDCASE_PROFILES_URL, {"params": {"query": query}}, os.environ["MINDCASE_API_KEY"], timeout=20)
+    if isinstance(response, list):
+        return "", response
+    if not isinstance(response, dict):
+        raise DiscoveryError("Mindcase no devolvió un identificador de ejecución.")
+    job_id = str(response.get("job_id") or response.get("id") or "")
+    if not MINDCASE_JOB_PATTERN.fullmatch(job_id):
+        raise DiscoveryError("Mindcase no devolvió un identificador de ejecución válido.")
+    return job_id, response
+
+
+def _mindcase_status(response):
+    if not isinstance(response, dict):
+        raise DiscoveryError("Mindcase devolvió un estado de ejecución incompleto.")
+    status = str(response.get("status") or "").lower()
+    if status in {"failed", "cancelled"}:
+        raise MindcaseTerminalError(f"Mindcase terminó la ejecución con estado {status}.")
+    if status in {"queued", "running", "completed"}:
+        return status
+    raise DiscoveryError("Mindcase devolvió un estado de ejecución desconocido.")
+
+
+def _read_mindcase_job(job_id):
+    if not MINDCASE_JOB_PATTERN.fullmatch(job_id):
+        raise DiscoveryError("El identificador de ejecución de Mindcase no es válido.")
+    key = os.environ["MINDCASE_API_KEY"]
+    response = _get_json(MINDCASE_JOB_STATUS_URL.format(job_id=job_id), key, timeout=20)
+    if not isinstance(response, dict) or (response.get("id") or response.get("job_id")) != job_id:
+        raise DiscoveryError("Mindcase no confirmó el identificador de esta ejecución.")
+    if _mindcase_status(response) != "completed":
+        return None
+    results = _get_json(MINDCASE_JOB_RESULTS_URL.format(job_id=job_id), key, timeout=20)
+    if not isinstance(results, dict) or not isinstance(results.get("data"), list):
+        raise DiscoveryError("Mindcase terminó sin entregar una lista de perfiles.")
+    if results.get("status") and _mindcase_status(results) != "completed":
+        raise DiscoveryError("Mindcase todavía no entregó los perfiles completos.")
+    return results["data"]
 
 
 def _normalize_mindcase_profiles(items, search_term):
@@ -169,22 +235,22 @@ def _normalize_mindcase_profiles(items, search_term):
         raise DiscoveryError("Mindcase devolvió un formato de perfiles inesperado.")
     profiles = {}
     for item in items:
-        if not isinstance(item, dict) or item.get("private") is True:
+        if not isinstance(item, dict) or item.get("private", item.get("Private")) is True:
             continue
-        handle = str(item.get("username") or "").strip().lstrip("@").lower()
+        handle = str(item.get("username") or item.get("Username") or "").strip().lstrip("@").lower()
         if not HANDLE_PATTERN.fullmatch(handle):
             continue
         profile = profiles.setdefault(handle, {
             "username": handle,
-            "name": str(item.get("fullName") or handle)[:180],
-            "bio": str(item.get("bio") or "")[:450],
-            "business_category": str(item.get("businessCategory") or "")[:120],
-            "business_city": str(item.get("businessCity") or "")[:120],
-            "business_account": item.get("businessAccount") is True,
+            "name": str(item.get("fullName") or item.get("Full Name") or handle)[:180],
+            "bio": str(item.get("bio") or item.get("Bio") or "")[:450],
+            "business_category": str(item.get("businessCategory") or item.get("Business Category") or "")[:120],
+            "business_city": str(item.get("businessCity") or item.get("Business City") or "")[:120],
+            "business_account": item.get("businessAccount", item.get("Business Account")) is True,
             "posts": [],
             "search_terms": [search_term],
         })
-        recent_posts = item.get("recentPosts")
+        recent_posts = item.get("recentPosts", item.get("latestPosts", item.get("Latest Posts")))
         if not isinstance(recent_posts, list):
             continue
         for post in recent_posts:
@@ -274,10 +340,22 @@ def run_tenant_discovery(tenant, *, force=False):
             return {"status": "already_running", "created": 0}
         if not force and run.finished_at and run.status == DiscoveryRun.Status.COMPLETED and now - run.finished_at < timedelta(hours=20):
             return {"status": "already_completed", "created": 0}
+        if run.mindcase_submission_attempted and not run.mindcase_job_id:
+            return {"status": "unconfirmed_submission", "created": 0}
+        if run.status == DiscoveryRun.Status.COMPLETED:
+            run.mindcase_job_id = ""
+            run.mindcase_submission_attempted = False
+            run.mindcase_submitted_at = None
+            run.mindcase_last_polled_at = None
+        elif (run.mindcase_job_id and run.mindcase_last_polled_at
+              and now - run.mindcase_last_polled_at < mindcase_poll_interval()
+              and (not run.mindcase_submitted_at or now - run.mindcase_submitted_at < mindcase_max_wait())):
+            return {"status": "poll_not_due", "created": 0}
         run.status = DiscoveryRun.Status.RUNNING
         run.started_at = now
+        run.finished_at = None
         run.error = ""
-        run.save(update_fields=["status", "started_at", "error"])
+        run.save(update_fields=["status", "started_at", "finished_at", "error", "mindcase_job_id", "mindcase_submission_attempted", "mindcase_submitted_at", "mindcase_last_polled_at"])
     try:
         products, territories = _catalog_context(tenant)
         if not products:
@@ -287,8 +365,38 @@ def run_tenant_discovery(tenant, *, force=False):
             run.prospects_created = 0
         else:
             if os.getenv("MINDCASE_API_KEY"):
-                search_terms = [_choose_mindcase_query(products, territories)]
-                profiles = _search_mindcase_profiles(search_terms[0])
+                if run.mindcase_job_id:
+                    search_terms = run.hashtags
+                    if run.mindcase_submitted_at and timezone.now() - run.mindcase_submitted_at >= mindcase_max_wait():
+                        raise MindcaseTerminalError("Mindcase no completó la ejecución dentro del tiempo máximo configurado.")
+                    run.mindcase_last_polled_at = timezone.now()
+                    run.save(update_fields=["mindcase_last_polled_at"])
+                    items = _read_mindcase_job(run.mindcase_job_id)
+                else:
+                    search_terms = [_choose_mindcase_query(products, territories)]
+                    run.hashtags = search_terms
+                    run.mindcase_submission_attempted = True
+                    run.mindcase_submitted_at = timezone.now()
+                    run.save(update_fields=["hashtags", "mindcase_submission_attempted", "mindcase_submitted_at"])
+                    job_id, response = _start_mindcase_job(search_terms[0])
+                    run.mindcase_job_id = job_id
+                    run.mindcase_submission_attempted = bool(job_id)
+                    run.save(update_fields=["mindcase_job_id", "mindcase_submission_attempted"])
+                    if isinstance(response, dict):
+                        state = _mindcase_status(response)
+                        if state == "completed":
+                            run.mindcase_last_polled_at = timezone.now()
+                            run.save(update_fields=["mindcase_last_polled_at"])
+                            items = _read_mindcase_job(job_id)
+                        else:
+                            items = None
+                    else:
+                        items = response
+                if items is None:
+                    run.status = DiscoveryRun.Status.PENDING
+                    run.save(update_fields=["status"])
+                    return {"status": "PENDING", "created": 0, "profiles_found": 0}
+                profiles = _normalize_mindcase_profiles(items, search_terms[0])
             else:
                 search_terms = _choose_hashtags(products, territories)
                 profiles = _search_profiles(search_terms)
@@ -307,5 +415,9 @@ def run_tenant_discovery(tenant, *, force=False):
         run.status = DiscoveryRun.Status.FAILED
         run.error = str(error)[:250] if isinstance(error, DiscoveryError) else "Falló la búsqueda automática. Revisa los registros del servidor."
         run.finished_at = timezone.now()
-        run.save(update_fields=["status", "error", "finished_at"])
+        # A timed-out submission may have started a paid job. Never submit it again
+        # unless its job ID has been recovered by an operator.
+        if (run.mindcase_submission_attempted and not run.mindcase_job_id) or isinstance(error, MindcaseTerminalError):
+            run.enabled = False
+        run.save(update_fields=["status", "error", "finished_at", "enabled"])
         raise

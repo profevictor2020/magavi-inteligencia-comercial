@@ -68,6 +68,7 @@ class Prospect(models.Model):
 class DiscoveryRun(models.Model):
     class Status(models.TextChoices):
         RUNNING = "RUNNING", "En curso"
+        PENDING = "PENDING", "Esperando resultados"
         COMPLETED = "COMPLETED", "Completada"
         FAILED = "FAILED", "Fallida"
         SKIPPED = "SKIPPED", "Sin objetivos"
@@ -81,6 +82,10 @@ class DiscoveryRun(models.Model):
     profiles_found = models.PositiveIntegerField(default=0)
     prospects_created = models.PositiveIntegerField(default=0)
     error = models.CharField(max_length=250, blank=True)
+    mindcase_job_id = models.CharField(max_length=100, blank=True)
+    mindcase_submission_attempted = models.BooleanField(default=False)
+    mindcase_submitted_at = models.DateTimeField(null=True, blank=True)
+    mindcase_last_polled_at = models.DateTimeField(null=True, blank=True)
 
 
 class Opportunity(models.Model):

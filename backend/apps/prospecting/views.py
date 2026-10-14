@@ -13,7 +13,7 @@ from rest_framework import status
 from apps.tenancy.models import Tenant
 from apps.tenancy.permissions import TenantRolePermission
 
-from .discovery import DiscoveryError, configured, run_tenant_discovery
+from .discovery import DiscoveryError, configured, mindcase_poll_interval, run_tenant_discovery
 from .matching import generate_opportunities
 from .models import DiscoveryRun, Opportunity, Prospect, Territory
 from .serializers import OpportunitySerializer, ProspectSerializer, TerritorySerializer
@@ -130,6 +130,7 @@ class DiscoveryStatusView(APIView):
             "profiles_found": run.profiles_found if run else 0,
             "prospects_created": run.prospects_created if run else 0,
             "error": run.error if run else "",
+            "mindcase_job_id": run.mindcase_job_id if run else "",
         })
 
     def patch(self, request):
@@ -137,6 +138,8 @@ class DiscoveryStatusView(APIView):
         if not isinstance(enabled, bool):
             return Response({"enabled": "Indica true o false."}, status=status.HTTP_400_BAD_REQUEST)
         run, _ = DiscoveryRun.objects.get_or_create(tenant=request.tenant)
+        if enabled and run.mindcase_submission_attempted and not run.mindcase_job_id and run.status == DiscoveryRun.Status.FAILED:
+            return Response({"detail": "Mindcase no confirmó el ID de la ejecución anterior. Revisa el historial antes de reactivar."}, status=status.HTTP_409_CONFLICT)
         run.enabled = enabled
         run.save(update_fields=["enabled"])
         return self.get(request)
@@ -157,9 +160,12 @@ class ScheduledDiscoveryView(APIView):
             return Response({"detail": "Faltan credenciales para Instagram o IA."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         cutoff = timezone.now() - timedelta(hours=20)
+        poll_cutoff = timezone.now() - mindcase_poll_interval()
         tenant = (Tenant.objects.filter(is_active=True)
                   .filter(discovery_run__enabled=True)
                   .exclude(discovery_run__status=DiscoveryRun.Status.RUNNING, discovery_run__started_at__gte=timezone.now() - timedelta(minutes=10))
+                  .filter(Q(discovery_run__mindcase_job_id="") | Q(discovery_run__mindcase_last_polled_at__isnull=True)
+                          | Q(discovery_run__mindcase_last_polled_at__lte=poll_cutoff))
                   .filter(Q(discovery_run__status__in=[DiscoveryRun.Status.FAILED, DiscoveryRun.Status.SKIPPED])
                           | Q(discovery_run__finished_at__isnull=True) | Q(discovery_run__finished_at__lt=cutoff))
                   .order_by("discovery_run__finished_at", "id").first())
