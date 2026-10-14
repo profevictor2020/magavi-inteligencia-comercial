@@ -2,6 +2,7 @@ from urllib.parse import urlsplit
 
 from rest_framework import serializers
 
+from .chile import suggested_localities
 from .models import Opportunity, Prospect, Territory
 
 
@@ -37,6 +38,16 @@ class TerritorySerializer(serializers.ModelSerializer):
         if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
             raise serializers.ValidationError("Las localidades deben ser una lista de textos.")
         return [item.strip() for item in value if item.strip()]
+
+    def create(self, validated_data):
+        if "localities" not in validated_data:
+            validated_data["localities"] = suggested_localities(validated_data.get("region", ""))
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "region" in validated_data and "localities" not in validated_data and validated_data["region"] != instance.region:
+            validated_data["localities"] = suggested_localities(validated_data["region"])
+        return super().update(instance, validated_data)
 
     def get_coverage_percentage(self, territory):
         if not territory.prospect_goal:

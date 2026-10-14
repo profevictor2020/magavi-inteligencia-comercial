@@ -5,6 +5,7 @@ from rest_framework.test import APIClient
 
 from apps.catalog.models import Category, IndustrySegment, Product
 from apps.prospecting.models import Opportunity, Prospect, Territory
+from apps.prospecting.territory_matching import matching_territory
 from apps.tenancy.models import Membership, Tenant, TenantDomain
 
 
@@ -100,6 +101,54 @@ def test_owner_manages_territories_with_coverage(prospects):
     assert result["prospect_count"] == 2
     assert result["reviewed_count"] == 1
     assert result["coverage_percentage"] == 50
+
+
+@pytest.mark.django_db
+def test_chilean_regions_suggest_localities_and_assign_existing_prospects(prospects):
+    tenant, other_tenant, owner, _ = prospects
+    matched = Prospect.objects.create(tenant=tenant, **{**data("Cafetería Santiago"), "city": "santiago"})
+    unmatched = Prospect.objects.create(tenant=tenant, **{**data("Cafetería Antofagasta"), "city": "Antofagasta"})
+    foreign = Prospect.objects.create(tenant=other_tenant, **{**data("Cafetería ajena"), "city": "Santiago"})
+    category = Category.objects.create(tenant=tenant, name="Café")
+    Product.objects.create(tenant=tenant, category=category, name="Café premium", sku="CAFE-1",
+                           target_industries=[IndustrySegment.FOOD_SERVICE])
+    api = client(owner)
+    regions = api.get(reverse("territory-regions"), HTTP_HOST="prospect-a.localhost")
+    assert regions.status_code == 200
+    assert len(regions.json()) == 16
+    metro = next(item for item in regions.json() if item["name"] == "Metropolitana de Santiago")
+    assert {"Santiago", "Providencia", "Ñuñoa"}.issubset(metro["localities"])
+    response = api.post(reverse("territory-list"), {
+        "name": "Santiago", "region": "Metropolitana de Santiago", "prospect_goal": 5,
+    }, format="json", HTTP_HOST="prospect-a.localhost")
+    assert response.status_code == 201
+    assert "Santiago" in response.json()["localities"]
+    assert response.json()["prospect_count"] == 1
+    matched.refresh_from_db()
+    unmatched.refresh_from_db()
+    foreign.refresh_from_db()
+    assert str(matched.territory_id) == response.json()["id"]
+    assert unmatched.territory_id is None
+    assert foreign.territory_id is None
+    assert Opportunity.objects.get(prospect=matched).score_breakdown["territory"] == 15
+
+
+def test_territory_matching_ignores_accents_and_case():
+    territory = Territory(name="Costa", region="Valparaíso", localities=["Viña del Mar"])
+    assert matching_territory("VINA DEL MAR", "", [territory]) is territory
+
+
+@pytest.mark.django_db
+def test_territory_matching_does_not_guess_ambiguous_city(prospects):
+    tenant, _, owner, _ = prospects
+    first = Territory.objects.create(tenant=tenant, name="Santiago Norte", region="Metropolitana de Santiago", localities=["Santiago"])
+    second = Territory.objects.create(tenant=tenant, name="Santiago Sur", region="Metropolitana de Santiago", localities=["Santiago"])
+    assert matching_territory("Santiago", "", [first, second]) is None
+    prospect = Prospect.objects.create(tenant=tenant, **{**data(), "city": "Santiago", "region": ""})
+    response = client(owner).patch(reverse("territory-detail", args=[first.id]), {"description": "Prioridad comercial"}, format="json", HTTP_HOST="prospect-a.localhost")
+    assert response.status_code == 200
+    prospect.refresh_from_db()
+    assert prospect.territory_id is None
 
 
 @pytest.mark.django_db

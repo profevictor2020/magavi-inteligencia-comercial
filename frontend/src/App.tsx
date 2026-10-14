@@ -124,6 +124,7 @@ function needsQuoteAttention(quote: FormalQuote, today: string) {
 }
 
 type Territory = { id: string; name: string; description: string; region: string; localities: string[]; prospect_goal: number; is_active: boolean; prospect_count: number; reviewed_count: number; coverage_percentage: number }
+type ChileanRegionOption = { name: string; localities: string[] }
 
 type Prospect = {
   id: string
@@ -842,6 +843,10 @@ function PrivateApp() {
   const [discoveryEvaluationTotal, setDiscoveryEvaluationTotal] = useState(0)
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [territories, setTerritories] = useState<Territory[]>([])
+  const [chileanRegions, setChileanRegions] = useState<ChileanRegionOption[]>([])
+  const [territoryRegion, setTerritoryRegion] = useState('')
+  const [territoryName, setTerritoryName] = useState('')
+  const [territoryLocalities, setTerritoryLocalities] = useState('')
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [industrySegments, setIndustrySegments] = useState<IndustrySegmentOption[]>([])
   const [activeSection, setActiveSection] = useState<'summary' | 'branding' | 'marketing' | 'catalog' | 'prospects' | 'territories' | 'opportunities' | 'inquiries' | 'orders' | 'quoteTracking'>('summary')
@@ -863,7 +868,7 @@ function PrivateApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Authentication required')
         const tenant = (await response.json()) as TenantContext
-        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, orderResponse, prospectResponse, territoryResponse, opportunityResponse, industryResponse] = await Promise.all([
+        const [categoryResponse, productResponse, sessionResponse, inquiryResponse, orderResponse, prospectResponse, territoryResponse, opportunityResponse, industryResponse, regionResponse] = await Promise.all([
           fetch('/api/catalog/categories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/products/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/auth/session/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
@@ -873,8 +878,9 @@ function PrivateApp() {
           fetch('/api/prospects/territories/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/prospects/opportunities/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
           fetch('/api/catalog/industry-segments/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
+          fetch('/api/prospects/territories/regions/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal }),
         ])
-        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !orderResponse.ok || !prospectResponse.ok || !territoryResponse.ok || !opportunityResponse.ok || !industryResponse.ok) throw new Error('Private data unavailable')
+        if (!categoryResponse.ok || !productResponse.ok || !sessionResponse.ok || !inquiryResponse.ok || !orderResponse.ok || !prospectResponse.ok || !territoryResponse.ok || !opportunityResponse.ok || !industryResponse.ok || !regionResponse.ok) throw new Error('Private data unavailable')
         const session = (await sessionResponse.json()) as AuthSession
         setCategories((await categoryResponse.json()) as Category[])
         setProducts((await productResponse.json()) as Product[])
@@ -885,6 +891,7 @@ function PrivateApp() {
         setTerritories((await territoryResponse.json()) as Territory[])
         setOpportunities((await opportunityResponse.json()) as Opportunity[])
         setIndustrySegments((await industryResponse.json()) as IndustrySegmentOption[])
+        setChileanRegions((await regionResponse.json()) as ChileanRegionOption[])
         setState({ phase: 'ready', data: tenant })
       })
       .catch((error: unknown) => {
@@ -1089,12 +1096,21 @@ function PrivateApp() {
     const formElement = event.currentTarget
     const form = new FormData(formElement)
     const response = await catalogRequest('/api/prospects/territories/', 'POST', {
-      name: form.get('name'), description: form.get('description'), region: form.get('region'),
-      localities: String(form.get('localities') ?? '').split(',').map((item) => item.trim()).filter(Boolean),
+      name: territoryName.trim(), description: form.get('description'), region: territoryRegion,
+      localities: territoryLocalities.split(',').map((item) => item.trim()).filter(Boolean),
       prospect_goal: Number(form.get('prospect_goal') || 0), is_active: true,
     })
     if (response) {
       setTerritories((current) => [...current, response as Territory].sort((a, b) => a.name.localeCompare(b.name)))
+      const [prospectResult, opportunityResult] = await Promise.allSettled([
+        fetch('/api/prospects/', { headers: jsonHeaders, credentials: 'same-origin' }),
+        fetch('/api/prospects/opportunities/', { headers: jsonHeaders, credentials: 'same-origin' }),
+      ])
+      if (prospectResult.status === 'fulfilled' && prospectResult.value.ok) setProspects(await prospectResult.value.json() as Prospect[])
+      if (opportunityResult.status === 'fulfilled' && opportunityResult.value.ok) setOpportunities(await opportunityResult.value.json() as Opportunity[])
+      setTerritoryName('')
+      setTerritoryRegion('')
+      setTerritoryLocalities('')
       formElement.reset()
     }
   }
@@ -1292,7 +1308,7 @@ function PrivateApp() {
 
         {activeSection === 'territories' && <section className="catalog-list territory-list">
           <div className="catalog-list-heading"><div><span className="eyebrow">COBERTURA</span><h2>Territorios comerciales</h2></div><strong>{territories.length}</strong></div>
-          {canEdit && <form className="territory-form" onSubmit={createTerritory}><label>Nombre<input name="name" required /></label><label>Región<input name="region" /></label><label>Localidades separadas por coma<input name="localities" placeholder="Viña del Mar, Concón" /></label><label>Objetivo de prospectos<input name="prospect_goal" type="number" min="0" defaultValue="0" /></label><label className="wide-field">Descripción<textarea name="description" /></label><button type="submit" disabled={!csrfToken}>Crear territorio</button></form>}
+          {canEdit && <form className="territory-form" onSubmit={createTerritory}><label>Región de interés<select name="region" required value={territoryRegion} onChange={(event) => { const region = event.target.value; const selected = chileanRegions.find((item) => item.name === region); setTerritoryName((current) => !current || current === territoryRegion ? region : current); setTerritoryRegion(region); setTerritoryLocalities(selected?.localities.join(', ') ?? '') }}><option value="">Selecciona una región de Chile</option>{chileanRegions.map((region) => <option key={region.name} value={region.name}>{region.name}</option>)}</select></label><label>Nombre del territorio<input name="name" required value={territoryName} onChange={(event) => setTerritoryName(event.target.value)} placeholder="Ej. Santiago Oriente" /></label><label className="wide-field">Ciudades y comunas de interés<textarea name="localities" value={territoryLocalities} onChange={(event) => setTerritoryLocalities(event.target.value)} aria-describedby="territory-localities-help" /></label><p id="territory-localities-help" className="territory-form-help">Sugerimos localidades principales de la región. Puedes quitar o agregar nombres separados por coma para definir dónde buscar.</p><label>Objetivo de prospectos<input name="prospect_goal" type="number" min="0" defaultValue="0" /></label><label className="wide-field">Descripción<textarea name="description" /></label><button type="submit" disabled={!csrfToken || !chileanRegions.length}>Crear territorio</button></form>}
           {territories.length === 0 ? <p className="empty-catalog">Crea el primer territorio para organizar la prospección.</p> : <div className="territory-grid">{territories.map((territory) => <article key={territory.id}><div><strong>{territory.name}</strong><small>{territory.region || 'Sin región'}</small></div><p>{territory.description || territory.localities.join(', ') || 'Sin descripción.'}</p><div className="coverage-bar"><span style={{ width: `${territory.coverage_percentage}%` }} /></div><footer><span>{territory.prospect_count} prospectos</span><span>{territory.reviewed_count} revisados</span><strong>{territory.coverage_percentage}%</strong></footer></article>)}</div>}
         </section>}
 

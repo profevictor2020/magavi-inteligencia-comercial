@@ -479,8 +479,9 @@ h1, h2, h3, p { margin-top: 0; }
 @media (max-width: 620px) { .dashboard-intro { align-items: flex-start; flex-direction: column; } .dashboard-priorities, .dashboard-insights, .dashboard-metrics, .commercial-dashboard .summary-grid { grid-template-columns: 1fr; } }
 .territory-form { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 24px; padding: 20px; border-radius: 12px; background: #f4f7f5; }
 .territory-form label { display: grid; gap: 6px; color: #344950; font-size: .8rem; font-weight: 750; }
-.territory-form input, .territory-form textarea, .prospect-form select { width: 100%; padding: 10px; border: 1px solid #cad4d7; border-radius: 8px; background: white; }
+.territory-form input, .territory-form textarea, .territory-form select, .prospect-form select { width: 100%; padding: 10px; border: 1px solid #cad4d7; border-radius: 8px; background: white; }
 .territory-form .wide-field { grid-column: 1 / -1; }
+.territory-form-help { grid-column: 1 / -1; margin: -8px 0 0; color: #5b7176; font-size: .78rem; }
 .territory-form button { padding: 11px; border: 0; border-radius: 9px; color: white; background: #0d766e; font-weight: 750; cursor: pointer; }
 .territory-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .territory-grid article { padding: 22px; border: 1px solid #dfe6e4; border-radius: 14px; background: #f8faf9; }

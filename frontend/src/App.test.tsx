@@ -240,6 +240,26 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByRole('link', { name: 'Ver Instagram ↗' })).toHaveAttribute('href', 'https://www.instagram.com/cuenta_personal/')
   })
 
+  it('suggests Chilean localities when a territory region is selected', async () => {
+    window.history.replaceState({}, '', '/app/')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.endsWith('/prospects/territories/regions/') ? [{ name: 'Metropolitana de Santiago', localities: ['Santiago', 'Providencia', 'Ñuñoa'] }]
+            : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Territorios/ }))
+    fireEvent.change(screen.getByLabelText('Región de interés'), { target: { value: 'Metropolitana de Santiago' } })
+    expect(screen.getByLabelText('Nombre del territorio')).toHaveValue('Metropolitana de Santiago')
+    expect(screen.getByLabelText('Ciudades y comunas de interés')).toHaveValue('Santiago, Providencia, Ñuñoa')
+    fireEvent.change(screen.getByLabelText('Ciudades y comunas de interés'), { target: { value: 'Santiago, Maipú' } })
+    expect(screen.getByLabelText('Ciudades y comunas de interés')).toHaveValue('Santiago, Maipú')
+  })
+
   it('filters a larger catalog while keeping the selected products', async () => {
     const products = [companyA.products[0], ...Array.from({ length: 13 }, (_, index) => ({ ...companyA.products[0], id: `product-${index + 2}`, name: `Producto ${index + 2}`, description: 'Repostería artesanal', sku: `P-${index + 2}`, category: 'Repostería' }))]
     mockJson({ ...companyA, products })
