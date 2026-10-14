@@ -45,7 +45,20 @@ def _post_json(url, payload, bearer, timeout=35):
         with urlopen(request, timeout=timeout) as response:
             return json.load(response)
     except HTTPError as error:
-        raise DiscoveryError(f"{urlsplit(url).hostname} respondió HTTP {error.code}.") from error
+        host = urlsplit(url).hostname
+        if host == "api.openai.com" and error.code == 429:
+            try:
+                error_body = json.loads(error.read(4096))
+                provider_error = error_body.get("error", {}) if isinstance(error_body, dict) else {}
+                error_code = provider_error.get("code") if isinstance(provider_error, dict) else None
+            except (ValueError, OSError):
+                error_code = None
+            if error_code == "insufficient_quota":
+                raise DiscoveryError("OpenAI no tiene cuota o saldo de API disponible. Revisa la facturación y los límites del proyecto en OpenAI Platform.") from error
+            if error_code == "rate_limit_exceeded":
+                raise DiscoveryError("OpenAI alcanzó el límite de solicitudes de la API. Revisa los límites del proyecto y vuelve a intentar más tarde.") from error
+            raise DiscoveryError("OpenAI respondió HTTP 429. Revisa el saldo, la cuota y los límites de solicitudes de la API.") from error
+        raise DiscoveryError(f"{host} respondió HTTP {error.code}.") from error
     except (URLError, TimeoutError, ValueError) as error:
         raise DiscoveryError(f"El proveedor no respondió correctamente ({type(error).__name__}).") from error
 

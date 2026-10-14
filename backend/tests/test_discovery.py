@@ -1,3 +1,7 @@
+import json
+from io import BytesIO
+from urllib.error import HTTPError
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -115,6 +119,23 @@ def test_mindcase_profile_response_preserves_public_business_evidence():
         "business_category": "Restaurant", "business_city": "Santiago", "business_account": True,
         "posts": ["Camarones para nuestros clientes"], "search_terms": ["sushi Santiago"],
     }]
+
+
+@pytest.mark.parametrize("provider_code,expected", [
+    ("insufficient_quota", "saldo de API"),
+    ("rate_limit_exceeded", "límite de solicitudes"),
+    (None, "HTTP 429"),
+])
+def test_openai_429_identifies_actionable_cause_without_exposing_response(monkeypatch, provider_code, expected):
+    body = json.dumps({"error": {"code": provider_code, "message": "private provider detail"}}).encode()
+
+    def fail_request(request, timeout):
+        raise HTTPError(request.full_url, 429, "Too Many Requests", {}, BytesIO(body))
+
+    monkeypatch.setattr(discovery, "urlopen", fail_request)
+    with pytest.raises(discovery.DiscoveryError, match=expected) as raised:
+        discovery._post_json("https://api.openai.com/v1/chat/completions", {}, "test-token")
+    assert "private provider detail" not in str(raised.value)
 
 
 @pytest.mark.django_db
