@@ -1,3 +1,7 @@
+import json
+from io import BytesIO
+from urllib.error import HTTPError
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -117,11 +121,62 @@ def test_mindcase_profile_response_preserves_public_business_evidence():
     }]
 
 
+def test_ai_json_uses_deepseek_without_openai_key(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    calls = []
+
+    def fake_post(url, payload, bearer, timeout):
+        calls.append((url, payload, bearer, timeout))
+        return {"choices": [{"message": {"content": '{"query":"sushi Santiago"}'}}]}
+
+    monkeypatch.setattr(discovery, "_post_json", fake_post)
+    assert discovery._ai_json("Devuelve JSON", {"products": ["Camarón"]}) == {"query": "sushi Santiago"}
+    url, payload, bearer, timeout = calls[0]
+    assert url == "https://api.deepseek.com/chat/completions"
+    assert payload["model"] == "deepseek-chat"
+    assert payload["response_format"] == {"type": "json_object"}
+    assert bearer == "test-deepseek-token"
+    assert timeout == 20
+
+
+def test_ai_json_uses_openai_only_without_deepseek_key(monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-token")
+    calls = []
+
+    def fake_post(url, payload, bearer, timeout):
+        calls.append((url, payload["model"], bearer))
+        return {"choices": [{"message": {"content": '{"query":"sushi Santiago"}'}}]}
+
+    monkeypatch.setattr(discovery, "_post_json", fake_post)
+    assert discovery._ai_json("Devuelve JSON", {}) == {"query": "sushi Santiago"}
+    assert calls == [("https://api.openai.com/v1/chat/completions", "gpt-4o-mini", "test-openai-token")]
+
+
+@pytest.mark.parametrize("provider_code,expected", [
+    ("insufficient_quota", "saldo de API"),
+    ("rate_limit_exceeded", "límite de solicitudes"),
+    (None, "HTTP 429"),
+])
+def test_openai_429_identifies_actionable_cause_without_exposing_response(monkeypatch, provider_code, expected):
+    body = json.dumps({"error": {"code": provider_code, "message": "private provider detail"}}).encode()
+
+    def fail_request(request, timeout):
+        raise HTTPError(request.full_url, 429, "Too Many Requests", {}, BytesIO(body))
+
+    monkeypatch.setattr(discovery, "urlopen", fail_request)
+    with pytest.raises(discovery.DiscoveryError, match=expected) as raised:
+        discovery._post_json("https://api.openai.com/v1/chat/completions", {}, "test-token")
+    assert "private provider detail" not in str(raised.value)
+
+
 @pytest.mark.django_db
 def test_mindcase_search_uses_keyword_contract_and_creates_qualified_prospect(monkeypatch, discovery_company):
     tenant, _ = discovery_company
     monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     calls = []
 
     def fake_ai(system, data):
@@ -169,6 +224,7 @@ def test_scheduler_does_not_run_without_provider_credentials(monkeypatch, discov
     monkeypatch.setenv("AUTOMATION_TOKEN", "test-automation-token")
     monkeypatch.delenv("APIFY_TOKEN", raising=False)
     monkeypatch.delenv("MINDCASE_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     response = APIClient().post(reverse("prospect-discovery-run"), HTTP_AUTHORIZATION="Bearer test-automation-token", HTTP_HOST="marina.localhost")
     assert response.status_code == 503

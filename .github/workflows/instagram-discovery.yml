@@ -18,7 +18,7 @@ jobs:
             echo '::error::Falta el secreto MAGAVI_AUTOMATION_TOKEN en GitHub Actions.'
             exit 1
           fi
-          curl --fail-with-body --silent --show-error --retry 2 --retry-delay 10 \
+          curl --fail-with-body --silent --show-error \
             --max-time 115 --request POST \
             --header "Authorization: Bearer $DISCOVERY_TOKEN" \
             "$BASE_URL/api/prospects/discovery/run/"

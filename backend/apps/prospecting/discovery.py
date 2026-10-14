@@ -1,4 +1,4 @@
-"""Tenant-isolated Instagram discovery using Mindcase or Apify and OpenAI."""
+"""Tenant-isolated Instagram discovery using Mindcase or Apify and an AI provider."""
 
 import json
 import os
@@ -31,7 +31,8 @@ class DiscoveryError(Exception):
 
 
 def configured():
-    return bool((os.getenv("MINDCASE_API_KEY") or os.getenv("APIFY_TOKEN")) and os.getenv("OPENAI_API_KEY"))
+    return bool((os.getenv("MINDCASE_API_KEY") or os.getenv("APIFY_TOKEN"))
+                and (os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")))
 
 
 def _post_json(url, payload, bearer, timeout=35):
@@ -45,18 +46,43 @@ def _post_json(url, payload, bearer, timeout=35):
         with urlopen(request, timeout=timeout) as response:
             return json.load(response)
     except HTTPError as error:
-        raise DiscoveryError(f"{urlsplit(url).hostname} respondió HTTP {error.code}.") from error
+        host = urlsplit(url).hostname
+        if host == "api.deepseek.com" and error.code == 402:
+            raise DiscoveryError("DeepSeek no tiene saldo de API disponible. Revisa la facturación en DeepSeek Platform.") from error
+        if host == "api.deepseek.com" and error.code == 429:
+            raise DiscoveryError("DeepSeek alcanzó un límite de la API. Revisa el saldo y los límites de solicitudes en DeepSeek Platform.") from error
+        if host == "api.openai.com" and error.code == 429:
+            try:
+                error_body = json.loads(error.read(4096))
+                provider_error = error_body.get("error", {}) if isinstance(error_body, dict) else {}
+                error_code = provider_error.get("code") if isinstance(provider_error, dict) else None
+            except (ValueError, OSError):
+                error_code = None
+            if error_code == "insufficient_quota":
+                raise DiscoveryError("OpenAI no tiene cuota o saldo de API disponible. Revisa la facturación y los límites del proyecto en OpenAI Platform.") from error
+            if error_code == "rate_limit_exceeded":
+                raise DiscoveryError("OpenAI alcanzó el límite de solicitudes de la API. Revisa los límites del proyecto y vuelve a intentar más tarde.") from error
+            raise DiscoveryError("OpenAI respondió HTTP 429. Revisa el saldo, la cuota y los límites de solicitudes de la API.") from error
+        raise DiscoveryError(f"{host} respondió HTTP {error.code}.") from error
     except (URLError, TimeoutError, ValueError) as error:
         raise DiscoveryError(f"El proveedor no respondió correctamente ({type(error).__name__}).") from error
 
 
 def _ai_json(system, data):
+    if os.getenv("DEEPSEEK_API_KEY"):
+        url = "https://api.deepseek.com/chat/completions"
+        model = os.getenv("DEEPSEEK_DISCOVERY_MODEL", "deepseek-chat")
+        key = os.environ["DEEPSEEK_API_KEY"]
+    else:
+        url = "https://api.openai.com/v1/chat/completions"
+        model = os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-4o-mini")
+        key = os.environ["OPENAI_API_KEY"]
     response = _post_json(
-        "https://api.openai.com/v1/chat/completions",
-        {"model": os.getenv("OPENAI_DISCOVERY_MODEL", "gpt-4o-mini"), "temperature": 0,
+        url,
+        {"model": model, "temperature": 0,
          "response_format": {"type": "json_object"},
          "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]},
-        os.environ["OPENAI_API_KEY"], timeout=20,
+        key, timeout=20,
     )
     try:
         return json.loads(response["choices"][0]["message"]["content"])
@@ -234,7 +260,7 @@ def _save_prospects(tenant, profiles, qualified, territories):
 
 def run_tenant_discovery(tenant, *, force=False):
     if not configured():
-        raise DiscoveryError("Faltan OPENAI_API_KEY y una clave de Mindcase o Apify.")
+        raise DiscoveryError("Faltan una clave de Mindcase o Apify y una clave de DeepSeek u OpenAI.")
     with transaction.atomic():
         run, _ = DiscoveryRun.objects.select_for_update().get_or_create(tenant=tenant)
         now = timezone.now()
