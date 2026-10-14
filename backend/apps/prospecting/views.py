@@ -148,6 +148,11 @@ class DiscoveryStatusView(APIView):
 
     def get(self, request):
         run = DiscoveryRun.objects.filter(tenant=request.tenant).first()
+        next_poll_at = None
+        if run and run.status == DiscoveryRun.Status.PENDING and run.mindcase_job_id:
+            last_check = run.mindcase_last_polled_at or run.mindcase_submitted_at
+            if last_check:
+                next_poll_at = last_check + mindcase_poll_interval()
         return Response({
             "configured": configured() and bool(os.getenv("AUTOMATION_TOKEN")),
             "enabled": run.enabled if run else False,
@@ -159,6 +164,7 @@ class DiscoveryStatusView(APIView):
             "prospects_created": run.prospects_created if run else 0,
             "error": run.error if run else "",
             "mindcase_job_id": run.mindcase_job_id if run else "",
+            "mindcase_next_poll_at": next_poll_at,
         })
 
     def patch(self, request):
@@ -214,6 +220,22 @@ class ManualDiscoveryView(APIView):
             return Response({"detail": "La búsqueda falló; revisa el estado en Prospectos."}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
             return Response({"detail": "La búsqueda falló; revisa los registros del servidor."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(result)
+
+
+class DiscoveryPollView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def post(self, request):
+        run = DiscoveryRun.objects.filter(tenant=request.tenant).first()
+        if not run or run.status != DiscoveryRun.Status.PENDING or not run.mindcase_job_id:
+            return Response({"detail": "No hay un job pendiente para consultar."}, status=status.HTTP_409_CONFLICT)
+        try:
+            result = run_tenant_discovery(request.tenant)
+        except DiscoveryError:
+            return Response({"detail": "No se pudo consultar Mindcase; revisa el estado en Prospectos."}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception:
+            return Response({"detail": "No se pudo consultar Mindcase; revisa los registros del servidor."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response(result)
 
 

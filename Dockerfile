@@ -30,6 +30,7 @@ RUN --mount=type=secret,id=proxy_ca \
 COPY backend/ /app/backend/
 COPY --from=frontend-builder /build/frontend/dist/ /app/backend/frontend_dist/
 COPY scripts/start.sh /app/scripts/start.sh
+COPY scripts/trigger_discovery.py /app/scripts/trigger_discovery.py
 
 RUN DJANGO_SETTINGS_MODULE=config.settings.development \
     python /app/backend/manage.py collectstatic --noinput \
