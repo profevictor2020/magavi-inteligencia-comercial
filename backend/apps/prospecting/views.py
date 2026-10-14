@@ -193,6 +193,30 @@ class DiscoveryEvaluationListView(APIView):
         })
 
 
+class ManualDiscoveryView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def post(self, request):
+        if not configured():
+            return Response({"detail": "Faltan credenciales para Instagram o IA."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        run = DiscoveryRun.objects.filter(tenant=request.tenant).first()
+        if not run or not run.enabled:
+            return Response({"detail": "Activa la búsqueda automática antes de probarla."}, status=status.HTTP_409_CONFLICT)
+        if run.mindcase_submission_attempted and not run.mindcase_job_id:
+            return Response({"detail": "Mindcase no confirmó el ID de la ejecución anterior. Revisa su historial antes de probar otra vez."}, status=status.HTTP_409_CONFLICT)
+        if run.status in (DiscoveryRun.Status.RUNNING, DiscoveryRun.Status.PENDING):
+            return Response({"detail": "Ya hay una búsqueda en curso. Esta prueba no iniciará otra."}, status=status.HTTP_409_CONFLICT)
+        if run.finished_at and timezone.now() - run.finished_at < timedelta(minutes=5):
+            return Response({"detail": "Espera cinco minutos desde la última búsqueda antes de iniciar otra prueba."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        try:
+            result = run_tenant_discovery(request.tenant, force=True)
+        except DiscoveryError:
+            return Response({"detail": "La búsqueda falló; revisa el estado en Prospectos."}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception:
+            return Response({"detail": "La búsqueda falló; revisa los registros del servidor."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response(result)
+
+
 class ScheduledDiscoveryView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]

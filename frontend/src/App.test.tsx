@@ -220,6 +220,23 @@ describe('multi-tenant application routes', () => {
     expect(fetch).toHaveBeenCalledWith('/api/prospects/discovery/', expect.objectContaining({ method: 'PATCH', body: '{"enabled":true}' }))
   })
 
+  it('starts one manual Instagram test when the daily cooldown is active', async () => {
+    window.history.replaceState({}, '', '/app/')
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.endsWith('/prospects/discovery/') ? { configured: true, enabled: true, status: 'COMPLETED', finished_at: '2026-10-14T14:51:15Z', hashtags: ['cafeterías Chile'], profiles_found: 7, prospects_created: 3, error: '', mindcase_job_id: 'old-job' }
+            : url.endsWith('/prospects/discovery/test/') ? { status: 'PENDING', created: 0 } : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Prospectos/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Buscar ahora' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/prospects/discovery/test/', expect.objectContaining({ method: 'POST' })))
+  })
+
   it('shows why an Instagram profile was not selected', async () => {
     window.history.replaceState({}, '', '/app/')
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {

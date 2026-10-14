@@ -559,3 +559,55 @@ def test_scheduler_does_not_run_without_provider_credentials(monkeypatch, discov
     response = APIClient().post(reverse("prospect-discovery-run"), HTTP_AUTHORIZATION="Bearer test-automation-token", HTTP_HOST="marina.localhost")
     assert response.status_code == 503
     assert DiscoveryRun.objects.get(tenant=tenant).status == DiscoveryRun.Status.SKIPPED
+
+
+@pytest.mark.django_db
+def test_manual_discovery_bypasses_daily_wait_but_reuses_existing_job(monkeypatch, discovery_company):
+    tenant, owner = discovery_company
+    client = APIClient()
+    client.force_authenticate(owner)
+    url = reverse("prospect-discovery-test")
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    run = DiscoveryRun.objects.create(
+        tenant=tenant, enabled=True, status=DiscoveryRun.Status.COMPLETED,
+        started_at=timezone.now() - timedelta(hours=2),
+        finished_at=timezone.now() - timedelta(hours=2),
+        mindcase_job_id="previous-job", hashtags=["cafeterías Santiago"],
+    )
+    started = []
+    monkeypatch.setattr(discovery, "_choose_mindcase_query", lambda *args: "cafeterías Puerto Montt")
+    monkeypatch.setattr(discovery, "_start_mindcase_job", lambda query: (started.append(query) or "new-job", {"status": "running"}))
+    response = client.post(url, HTTP_HOST="marina.localhost")
+    assert response.status_code == 200
+    assert response.json()["status"] == "PENDING"
+    assert started == ["cafeterías Puerto Montt"]
+    run.refresh_from_db()
+    assert run.mindcase_job_id == "new-job"
+    assert run.hashtags == ["cafeterías Puerto Montt"]
+    assert client.post(url, HTTP_HOST="marina.localhost").status_code == 409
+    assert started == ["cafeterías Puerto Montt"]
+
+
+@pytest.mark.django_db
+def test_manual_discovery_checks_role_pause_and_short_cooldown(monkeypatch, discovery_company):
+    tenant, owner = discovery_company
+    viewer = get_user_model().objects.create_user("manual-viewer", "manual-viewer@example.test", "password")
+    Membership.objects.create(tenant=tenant, user=viewer, role=Membership.Role.VIEWER)
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    url = reverse("prospect-discovery-test")
+    client = APIClient()
+    client.force_authenticate(owner)
+    viewer_client = APIClient()
+    viewer_client.force_authenticate(viewer)
+    assert viewer_client.post(url, HTTP_HOST="marina.localhost").status_code == 403
+    assert client.post(url, HTTP_HOST="marina.localhost").status_code == 409
+    run = DiscoveryRun.objects.create(tenant=tenant, enabled=True, status=DiscoveryRun.Status.COMPLETED,
+                                      finished_at=timezone.now() - timedelta(minutes=2))
+    assert client.post(url, HTTP_HOST="marina.localhost").status_code == 429
+    run.mindcase_submission_attempted = True
+    run.status = DiscoveryRun.Status.FAILED
+    run.finished_at = timezone.now() - timedelta(minutes=10)
+    run.save(update_fields=["mindcase_submission_attempted", "status", "finished_at"])
+    assert client.post(url, HTTP_HOST="marina.localhost").status_code == 409
