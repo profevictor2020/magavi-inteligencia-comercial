@@ -2,6 +2,7 @@ import os
 from datetime import timedelta
 
 from django.db.models import Count, Q
+from django.db import transaction
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, RetrieveUpdateAPIView
@@ -14,9 +15,11 @@ from apps.tenancy.models import Tenant
 from apps.tenancy.permissions import TenantRolePermission
 
 from .discovery import DiscoveryError, configured, mindcase_poll_interval, run_tenant_discovery
+from .chile import REGIONS
 from .matching import generate_opportunities
 from .models import DiscoveryEvaluation, DiscoveryRun, Opportunity, Prospect, Territory
 from .serializers import OpportunitySerializer, ProspectSerializer, TerritorySerializer
+from .territory_matching import assign_unassigned_prospects
 
 
 class TerritoryMixin:
@@ -30,7 +33,25 @@ class TerritoryMixin:
         )
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant)
+        with transaction.atomic():
+            territory = serializer.save(tenant=self.request.tenant)
+            assigned = assign_unassigned_prospects(self.request.tenant)
+            if assigned:
+                generate_opportunities(self.request.tenant)
+            self._set_counts(territory)
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            territory = serializer.save()
+            assigned = assign_unassigned_prospects(self.request.tenant)
+            if assigned:
+                generate_opportunities(self.request.tenant)
+            self._set_counts(territory)
+
+    @staticmethod
+    def _set_counts(territory):
+        territory.prospect_count = Prospect.objects.filter(territory=territory).count()
+        territory.reviewed_count = Prospect.objects.filter(territory=territory, status=Prospect.Status.REVIEWED).count()
 
 
 class TerritoryListCreateView(TerritoryMixin, ListCreateAPIView):
@@ -39,6 +60,13 @@ class TerritoryListCreateView(TerritoryMixin, ListCreateAPIView):
 
 class TerritoryDetailView(TerritoryMixin, RetrieveUpdateDestroyAPIView):
     pass
+
+
+class ChileanRegionListView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def get(self, request):
+        return Response([{"name": name, "localities": list(localities)} for name, localities in REGIONS])
 
 
 class ProspectMixin:

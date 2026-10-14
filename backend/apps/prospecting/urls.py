@@ -11,6 +11,7 @@ from .views import (
     ProspectListCreateView,
     TerritoryDetailView,
     TerritoryListCreateView,
+    ChileanRegionListView,
 )
 
 urlpatterns = [
@@ -18,6 +19,7 @@ urlpatterns = [
     path("discovery/evaluations/", DiscoveryEvaluationListView.as_view(), name="prospect-discovery-evaluations"),
     path("discovery/run/", ScheduledDiscoveryView.as_view(), name="prospect-discovery-run"),
     path("territories/", TerritoryListCreateView.as_view(), name="territory-list"),
+    path("territories/regions/", ChileanRegionListView.as_view(), name="territory-regions"),
     path("territories/<uuid:pk>/", TerritoryDetailView.as_view(), name="territory-detail"),
     path("opportunities/", OpportunityListView.as_view(), name="opportunity-list"),
     path("opportunities/generate/", GenerateOpportunitiesView.as_view(), name="opportunity-generate"),

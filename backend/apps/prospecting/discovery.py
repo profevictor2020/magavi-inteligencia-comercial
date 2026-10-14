@@ -17,6 +17,7 @@ from apps.catalog.models import IndustrySegment, Product
 from .matching import generate_opportunities
 from .models import DiscoveryEvaluation, DiscoveryRun, Prospect, Territory
 from .serializers import normalized_domain
+from .territory_matching import matching_territory
 
 
 MAX_HASHTAGS = 2
@@ -130,7 +131,7 @@ def _ai_json(system, data):
 
 def _catalog_context(tenant):
     products = list(Product.objects.filter(tenant=tenant, is_available=True, category__is_active=True).select_related("category")[:20])
-    territories = list(Territory.objects.filter(tenant=tenant, is_active=True)[:10])
+    territories = list(Territory.objects.filter(tenant=tenant, is_active=True)[:32])
     return products, territories
 
 
@@ -302,14 +303,7 @@ def _qualify(profiles, products):
 
 
 def _territory_for(city, territories):
-    city = city.casefold().strip()
-    if not city:
-        return None
-    for territory in territories:
-        values = [territory.name, territory.region, *territory.localities]
-        if any(city == str(value).casefold().strip() for value in values):
-            return territory
-    return None
+    return matching_territory(city, "", territories)
 
 
 def _save_prospects(tenant, profiles, qualified, territories):
