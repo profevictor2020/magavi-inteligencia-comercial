@@ -9,7 +9,11 @@ def normalized_domain(value):
     if not value:
         return ""
     hostname = urlsplit(value if "://" in value else f"https://{value}").hostname or ""
-    return hostname.removeprefix("www.").lower()
+    hostname = hostname.removeprefix("www.").lower()
+    if hostname == "instagram.com":
+        path = urlsplit(value if "://" in value else f"https://{value}").path.strip("/").split("/")[0].lower()
+        return f"instagram.com/{path}" if path else hostname
+    return hostname
 
 
 def normalized_phone(value):
@@ -49,9 +53,9 @@ class ProspectSerializer(serializers.ModelSerializer):
         model = Prospect
         fields = (
             "id", "territory", "territory_name", "name", "industry", "industry_label", "address", "city", "region", "website", "email", "phone",
-            "source", "notes", "verified_at", "status", "duplicate_warnings", "created_at", "updated_at",
+            "source", "notes", "instagram_handle", "discovery_score", "verified_at", "status", "duplicate_warnings", "created_at", "updated_at",
         )
-        read_only_fields = ("id", "territory_name", "industry_label", "duplicate_warnings", "created_at", "updated_at")
+        read_only_fields = ("id", "territory_name", "industry_label", "instagram_handle", "discovery_score", "duplicate_warnings", "created_at", "updated_at")
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

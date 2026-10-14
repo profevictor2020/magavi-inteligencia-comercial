@@ -201,6 +201,25 @@ describe('multi-tenant application routes', () => {
     expect(screen.getByText('$49.980')).toBeInTheDocument()
   })
 
+  it('lets an owner enable scheduled Instagram discovery without adding profile links', async () => {
+    window.history.replaceState({}, '', '/app/')
+    const initial = { configured: true, enabled: false, status: 'NOT_STARTED', finished_at: null, hashtags: [], profiles_found: 0, prospects_created: 0, error: '' }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.endsWith('/prospects/discovery/') ? { ...initial, enabled: init?.method === 'PATCH' }
+            : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Prospectos/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Activar búsqueda automática' }))
+    expect(await screen.findByRole('button', { name: 'Pausar búsqueda automática' })).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledWith('/api/prospects/discovery/', expect.objectContaining({ method: 'PATCH', body: '{"enabled":true}' }))
+  })
+
   it('filters a larger catalog while keeping the selected products', async () => {
     const products = [companyA.products[0], ...Array.from({ length: 13 }, (_, index) => ({ ...companyA.products[0], id: `product-${index + 2}`, name: `Producto ${index + 2}`, description: 'Repostería artesanal', sku: `P-${index + 2}`, category: 'Repostería' }))]
     mockJson({ ...companyA, products })

@@ -1,0 +1,24 @@
+name: Instagram discovery
+
+on:
+  schedule:
+    - cron: '5 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger one due company
+        env:
+          DISCOVERY_TOKEN: ${{ secrets.MAGAVI_AUTOMATION_TOKEN }}
+          BASE_URL: ${{ vars.MAGAVI_BASE_URL || 'https://magavi-web-vaaa.onrender.com' }}
+        run: |
+          if [ -z "$DISCOVERY_TOKEN" ]; then
+            echo 'Instagram discovery is paused until MAGAVI_AUTOMATION_TOKEN is configured.'
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --retry 2 --retry-delay 10 \
+            --max-time 115 --request POST \
+            --header "Authorization: Bearer $DISCOVERY_TOKEN" \
+            "$BASE_URL/api/prospects/discovery/run/"
