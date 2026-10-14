@@ -562,6 +562,50 @@ def test_scheduler_does_not_run_without_provider_credentials(monkeypatch, discov
 
 
 @pytest.mark.django_db
+def test_browser_poll_reuses_job_and_respects_interval(monkeypatch, discovery_company):
+    tenant, owner = discovery_company
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    run = DiscoveryRun.objects.create(
+        tenant=tenant, enabled=True, status=DiscoveryRun.Status.PENDING,
+        mindcase_job_id="job_12345678", mindcase_submission_attempted=True,
+        mindcase_submitted_at=timezone.now() - timedelta(minutes=16),
+        hashtags=["cafeterías Puerto Montt"],
+    )
+    client = APIClient()
+    client.force_authenticate(owner)
+    url = reverse("prospect-discovery-poll")
+    reads = []
+    monkeypatch.setattr(discovery, "_start_mindcase_job", lambda *args: pytest.fail("No debe crear un job"))
+    monkeypatch.setattr(discovery, "_get_json", lambda url, *args, **kwargs: (reads.append(url) or {"id": "job_12345678", "status": "running"}))
+    response = client.get(reverse("prospect-discovery-status"), HTTP_HOST="marina.localhost")
+    assert response.json()["mindcase_next_poll_at"] is not None
+    assert client.post(url, HTTP_HOST="marina.localhost").json()["status"] == "PENDING"
+    assert reads == [discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678")]
+    run.refresh_from_db()
+    assert run.mindcase_job_id == "job_12345678"
+    assert client.post(url, HTTP_HOST="marina.localhost").json()["status"] == "poll_not_due"
+    assert len(reads) == 1
+
+
+@pytest.mark.django_db
+def test_browser_poll_requires_existing_job_and_write_role(monkeypatch, discovery_company):
+    tenant, owner = discovery_company
+    viewer = get_user_model().objects.create_user("poll-viewer", "poll-viewer@example.test", "password")
+    Membership.objects.create(tenant=tenant, user=viewer, role=Membership.Role.VIEWER)
+    url = reverse("prospect-discovery-poll")
+    owner_client = APIClient()
+    owner_client.force_authenticate(owner)
+    viewer_client = APIClient()
+    viewer_client.force_authenticate(viewer)
+    assert viewer_client.post(url, HTTP_HOST="marina.localhost").status_code == 403
+    assert owner_client.post(url, HTTP_HOST="marina.localhost").status_code == 409
+    DiscoveryRun.objects.create(tenant=tenant, enabled=True, status=DiscoveryRun.Status.COMPLETED,
+                                mindcase_job_id="job_12345678")
+    assert owner_client.post(url, HTTP_HOST="marina.localhost").status_code == 409
+
+
+@pytest.mark.django_db
 def test_manual_discovery_bypasses_daily_wait_but_reuses_existing_job(monkeypatch, discovery_company):
     tenant, owner = discovery_company
     client = APIClient()

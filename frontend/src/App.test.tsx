@@ -237,6 +237,28 @@ describe('multi-tenant application routes', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/prospects/discovery/test/', expect.objectContaining({ method: 'POST' })))
   })
 
+  it('checks an existing due Mindcase job while Prospectos is open', async () => {
+    window.history.replaceState({}, '', '/app/')
+    let polled = false
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/prospects/discovery/poll/')) polled = true
+      const payload = url.includes('/tenant/context/') ? { id: 'tenant-a', name: 'Empresa A', role: 'OWNER' }
+        : url.includes('/auth/session/') ? { authenticated: true, csrf_token: 'synthetic-csrf-token' }
+          : url.endsWith('/prospects/discovery/') ? {
+            configured: true, enabled: true, status: polled ? 'COMPLETED' : 'PENDING', finished_at: null,
+            hashtags: ['cafeterías Puerto Montt'], profiles_found: 0, prospects_created: 0, error: '',
+            mindcase_job_id: 'existing-job', mindcase_next_poll_at: new Date(Date.now() - 1000).toISOString(),
+          } : []
+      return Promise.resolve({ ok: true, json: async () => payload })
+    }))
+    render(<App />)
+    const nav = within(await screen.findByRole('navigation', { name: 'Administración de la empresa' }))
+    fireEvent.click(nav.getByRole('button', { name: /Prospectos/ }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/prospects/discovery/poll/', expect.objectContaining({ method: 'POST' })))
+    expect(fetch).not.toHaveBeenCalledWith('/api/prospects/discovery/test/', expect.anything())
+  })
+
   it('shows why an Instagram profile was not selected', async () => {
     window.history.replaceState({}, '', '/app/')
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {

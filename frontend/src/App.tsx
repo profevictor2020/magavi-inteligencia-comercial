@@ -192,6 +192,7 @@ type DiscoveryStatus = {
   prospects_created: number
   error: string
   mindcase_job_id: string
+  mindcase_next_poll_at?: string | null
 }
 
 type DiscoveryEvaluation = {
@@ -904,9 +905,28 @@ function PrivateApp() {
   useEffect(() => {
     if (state.phase !== 'ready') return
     const controller = new AbortController()
+    let polling = false
     const refresh = () => {
       fetch('/api/prospects/discovery/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
-        .then(async (response) => { if (response.ok) setDiscovery(await response.json() as DiscoveryStatus) })
+        .then(async (response) => {
+          if (!response.ok) return
+          const current = await response.json() as DiscoveryStatus
+          setDiscovery(current)
+          if (activeSection !== 'prospects' || !csrfToken || polling ||
+              !['OWNER', 'ADMIN'].includes(state.data.role) || current.status !== 'PENDING' ||
+              !current.mindcase_job_id || !current.mindcase_next_poll_at ||
+              Date.parse(current.mindcase_next_poll_at) > Date.now()) return
+          polling = true
+          try {
+            await fetch('/api/prospects/discovery/poll/', {
+              method: 'POST', credentials: 'same-origin', signal: controller.signal,
+              headers: { ...jsonHeaders, 'X-CSRFToken': csrfToken },
+            })
+            const latest = await fetch('/api/prospects/discovery/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
+            if (latest.ok) setDiscovery(await latest.json() as DiscoveryStatus)
+          } catch { /* The next refresh can retry a transient network failure. */ }
+          finally { polling = false }
+        })
         .catch(() => {})
       if (activeSection === 'prospects') {
         fetch('/api/prospects/discovery/evaluations/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
@@ -917,7 +937,7 @@ function PrivateApp() {
     refresh()
     const interval = activeSection === 'prospects' ? window.setInterval(refresh, 60_000) : undefined
     return () => { controller.abort(); if (interval !== undefined) window.clearInterval(interval) }
-  }, [state.phase, activeSection])
+  }, [state.phase, activeSection, csrfToken])
 
   async function loadMoreDiscoveryEvaluations() {
     const response = await fetch(`/api/prospects/discovery/evaluations/?offset=${discoveryEvaluations.length}`, { headers: jsonHeaders, credentials: 'same-origin' })
