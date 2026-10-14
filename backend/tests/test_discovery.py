@@ -1,4 +1,5 @@
 import json
+import importlib
 from datetime import timedelta
 from io import BytesIO
 from urllib.error import HTTPError, URLError
@@ -449,6 +450,58 @@ def test_existing_job_with_zero_results_completes_without_new_extraction(monkeyp
         discovery.MINDCASE_JOB_STATUS_URL.format(job_id="job_12345678"),
         discovery.MINDCASE_JOB_RESULTS_URL.format(job_id="job_12345678"),
     ]
+
+
+@pytest.mark.django_db
+def test_irrelevant_mindcase_batch_pauses_future_paid_searches(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    DiscoveryRun.objects.create(tenant=tenant, enabled=True)
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    monkeypatch.setenv("AUTOMATION_TOKEN", "test-automation-token")
+    monkeypatch.setattr(discovery, "_choose_mindcase_query", lambda *args: "cafeterías Puerto Montt")
+    monkeypatch.setattr(discovery, "_start_mindcase_job", lambda query: ("job_12345678", {"status": "completed"}))
+    monkeypatch.setattr(discovery, "_read_mindcase_job", lambda job_id: [
+        {"username": f"celebridad_{index}", "fullName": f"Celebridad {index}", "bio": "Actor internacional"}
+        for index in range(5)
+    ])
+    monkeypatch.setattr(discovery, "_ai_json", lambda system, data: {"prospects": [
+        {"username": f"celebridad_{index}", "relevant": False, "score": 0, "reason": "Sin negocio comprador."}
+        for index in range(5)
+    ]})
+    result = discovery.run_tenant_discovery(tenant)
+    assert result == {"status": "COMPLETED", "created": 0, "profiles_found": 5}
+    run = DiscoveryRun.objects.get(tenant=tenant)
+    assert run.enabled is False
+    assert "pausó" in run.error
+    assert DiscoveryEvaluation.objects.filter(tenant=tenant, decision="REJECTED").count() == 5
+    scheduled = APIClient().post(reverse("prospect-discovery-run"),
+                                 HTTP_AUTHORIZATION="Bearer test-automation-token", HTTP_HOST="marina.localhost")
+    assert scheduled.json()["status"] == "no_due_tenants"
+
+
+@pytest.mark.django_db
+def test_migration_pauses_an_existing_irrelevant_batch(discovery_company):
+    from django.apps import apps
+    from uuid import uuid4
+
+    tenant, _ = discovery_company
+    batch_id = uuid4()
+    run = DiscoveryRun.objects.create(
+        tenant=tenant, enabled=True, status=DiscoveryRun.Status.COMPLETED,
+        profiles_found=5, prospects_created=0, evaluation_batch_id=batch_id,
+    )
+    for index in range(5):
+        DiscoveryEvaluation.objects.create(
+            tenant=tenant, batch_id=batch_id, username=f"irrelevante_{index}",
+            name=f"Irrelevante {index}", search_term="cafeterías Puerto Montt",
+            decision=DiscoveryEvaluation.Decision.REJECTED,
+        )
+    migration = importlib.import_module("apps.prospecting.migrations.0008_pause_irrelevant_discovery_runs")
+    migration.pause_irrelevant_runs(apps, None)
+    run.refresh_from_db()
+    assert run.enabled is False
+    assert "pausó" in run.error
 
 
 @pytest.mark.django_db

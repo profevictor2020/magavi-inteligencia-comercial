@@ -495,6 +495,15 @@ def run_tenant_discovery(tenant, *, force=False):
                 search_terms = _choose_hashtags(products, territories)
                 profiles = _search_profiles(search_terms)
             qualified, evaluations = _qualify(profiles, products, territories) if profiles else ({}, {})
+            # A full batch of unrelated results suggests the provider did not
+            # honor the search intent. Do not pay for another automatic run.
+            if os.getenv("MINDCASE_API_KEY") and len(profiles) >= 5 and not qualified:
+                run.enabled = False
+                run.error = (
+                    "Mindcase devolvió perfiles, pero ninguno cumplió los criterios comerciales "
+                    "y territoriales. La búsqueda se pausó para evitar nuevos cargos; "
+                    "revisa Perfiles evaluados antes de reactivarla."
+                )
             with transaction.atomic():
                 created, existing_handles = _save_prospects(tenant, profiles, qualified, territories)
                 _record_evaluations(tenant, run.evaluation_batch_id, search_terms[0], profiles, evaluations, existing_handles)
@@ -505,7 +514,7 @@ def run_tenant_discovery(tenant, *, force=False):
             run.profiles_found = len(profiles)
             run.prospects_created = created
         run.finished_at = timezone.now()
-        run.save(update_fields=["status", "finished_at", "hashtags", "profiles_found", "prospects_created", "error"])
+        run.save(update_fields=["status", "finished_at", "hashtags", "profiles_found", "prospects_created", "error", "enabled"])
         return {"status": run.status, "created": run.prospects_created, "profiles_found": run.profiles_found}
     except Exception as error:
         run.status = DiscoveryRun.Status.FAILED
