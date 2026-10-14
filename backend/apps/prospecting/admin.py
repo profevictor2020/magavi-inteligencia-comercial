@@ -20,7 +20,7 @@ class ProspectAdmin(admin.ModelAdmin):
 
 @admin.register(DiscoveryRun)
 class DiscoveryRunAdmin(admin.ModelAdmin):
-    list_display = ("tenant", "status", "started_at", "finished_at", "profiles_found", "prospects_created")
+    list_display = ("tenant", "status", "mindcase_job_id", "started_at", "finished_at", "profiles_found", "prospects_created")
     readonly_fields = ("tenant", "status", "started_at", "finished_at", "hashtags", "profiles_found", "prospects_created", "error")
 
     def has_add_permission(self, request):

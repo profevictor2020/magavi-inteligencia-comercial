@@ -130,6 +130,7 @@ class DiscoveryStatusView(APIView):
             "profiles_found": run.profiles_found if run else 0,
             "prospects_created": run.prospects_created if run else 0,
             "error": run.error if run else "",
+            "mindcase_job_id": run.mindcase_job_id if run else "",
         })
 
     def patch(self, request):
@@ -137,6 +138,8 @@ class DiscoveryStatusView(APIView):
         if not isinstance(enabled, bool):
             return Response({"enabled": "Indica true o false."}, status=status.HTTP_400_BAD_REQUEST)
         run, _ = DiscoveryRun.objects.get_or_create(tenant=request.tenant)
+        if enabled and run.mindcase_submission_attempted and not run.mindcase_job_id and run.status == DiscoveryRun.Status.FAILED:
+            return Response({"detail": "Mindcase no confirmó el ID de la ejecución anterior. Revisa el historial antes de reactivar."}, status=status.HTTP_409_CONFLICT)
         run.enabled = enabled
         run.save(update_fields=["enabled"])
         return self.get(request)
