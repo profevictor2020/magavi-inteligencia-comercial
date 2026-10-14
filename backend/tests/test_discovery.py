@@ -25,6 +25,7 @@ def discovery_company(db):
 @pytest.mark.django_db
 def test_discovery_creates_only_relevant_profiles_and_deduplicates(monkeypatch, discovery_company):
     tenant, _ = discovery_company
+    monkeypatch.delenv("MINDCASE_API_KEY", raising=False)
     monkeypatch.setenv("APIFY_TOKEN", "test-apify-token")
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-token")
     calls = []
@@ -65,6 +66,7 @@ def test_discovery_creates_only_relevant_profiles_and_deduplicates(monkeypatch, 
 @pytest.mark.django_db
 def test_discovery_status_is_tenant_private_and_trigger_requires_secret(monkeypatch, discovery_company):
     tenant, user = discovery_company
+    monkeypatch.delenv("MINDCASE_API_KEY", raising=False)
     viewer = get_user_model().objects.create_user("marina-viewer", "marina-viewer@example.test", "password")
     Membership.objects.create(tenant=tenant, user=viewer, role=Membership.Role.VIEWER)
     monkeypatch.setenv("AUTOMATION_TOKEN", "test-automation-token")
@@ -99,12 +101,56 @@ def test_instagram_duplicate_identity_uses_profile_not_shared_domain():
     assert normalized_domain("https://instagram.com/otro/?x=1") == "instagram.com/otro"
 
 
+def test_mindcase_profile_response_preserves_public_business_evidence():
+    profiles = discovery._normalize_mindcase_profiles([
+        {"username": "sushi_real", "fullName": "Sushi Real", "bio": "Restaurante en Santiago",
+         "businessAccount": True, "businessCategory": "Restaurant", "businessCity": "Santiago",
+         "private": False, "recentPosts": [{"caption": "Camarones para nuestros clientes"}]},
+        {"username": "privado", "private": True, "recentPosts": [{"caption": "No público"}]},
+    ], "sushi Santiago")
+    assert profiles == [{
+        "username": "sushi_real", "name": "Sushi Real", "bio": "Restaurante en Santiago",
+        "business_category": "Restaurant", "business_city": "Santiago", "business_account": True,
+        "posts": ["Camarones para nuestros clientes"], "search_terms": ["sushi Santiago"],
+    }]
+
+
+@pytest.mark.django_db
+def test_mindcase_search_uses_keyword_contract_and_creates_qualified_prospect(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-token")
+    calls = []
+
+    def fake_ai(system, data):
+        if "clave query" in system:
+            return {"query": "sushi Santiago"}
+        assert data["profiles"][0]["bio"] == "Sushi en Santiago"
+        assert data["profiles"][0]["posts"] == ["Servimos camarones"]
+        return {"prospects": [{"username": "sushi_real", "relevant": True, "score": 85,
+                              "industry": "FOOD_SERVICE", "reason": "Restaurante que sirve camarones.", "city": ""}]}
+
+    def fake_post(url, payload, bearer, timeout=35):
+        calls.append((url, payload, bearer))
+        return [{"username": "sushi_real", "fullName": "Sushi Real", "bio": "Sushi en Santiago",
+                 "businessCity": "Santiago", "private": False,
+                 "recentPosts": [{"caption": "Servimos camarones"}]}]
+
+    monkeypatch.setattr(discovery, "_ai_json", fake_ai)
+    monkeypatch.setattr(discovery, "_post_json", fake_post)
+    assert discovery.run_tenant_discovery(tenant) == {"status": "COMPLETED", "created": 1, "profiles_found": 1}
+    assert calls == [(discovery.MINDCASE_PROFILES_URL, {"params": {"query": "sushi Santiago"}}, "test-mindcase-token")]
+    assert Prospect.objects.get(tenant=tenant).city == "Santiago"
+    assert DiscoveryRun.objects.get(tenant=tenant).hashtags == ["sushi Santiago"]
+
+
 @pytest.mark.django_db
 def test_scheduler_does_not_run_without_provider_credentials(monkeypatch, discovery_company):
     tenant, _ = discovery_company
     DiscoveryRun.objects.create(tenant=tenant, enabled=True)
     monkeypatch.setenv("AUTOMATION_TOKEN", "test-automation-token")
     monkeypatch.delenv("APIFY_TOKEN", raising=False)
+    monkeypatch.delenv("MINDCASE_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     response = APIClient().post(reverse("prospect-discovery-run"), HTTP_AUTHORIZATION="Bearer test-automation-token", HTTP_HOST="marina.localhost")
     assert response.status_code == 503
