@@ -1,6 +1,6 @@
 import json
 from io import BytesIO
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -171,6 +171,16 @@ def test_openai_429_identifies_actionable_cause_without_exposing_response(monkey
     assert "private provider detail" not in str(raised.value)
 
 
+@pytest.mark.parametrize("failure", [TimeoutError(), URLError(TimeoutError())])
+def test_mindcase_timeout_identifies_provider_and_wait(monkeypatch, failure):
+    def fail_request(request, timeout):
+        raise failure
+
+    monkeypatch.setattr(discovery, "urlopen", fail_request)
+    with pytest.raises(discovery.DiscoveryError, match="api.mindcase.co agotó el tiempo de espera de 60 segundos"):
+        discovery._post_json(discovery.MINDCASE_PROFILES_URL, {"params": {"query": "sushi Santiago"}}, "test-token", timeout=60)
+
+
 @pytest.mark.django_db
 def test_mindcase_search_uses_keyword_contract_and_creates_qualified_prospect(monkeypatch, discovery_company):
     tenant, _ = discovery_company
@@ -188,7 +198,7 @@ def test_mindcase_search_uses_keyword_contract_and_creates_qualified_prospect(mo
                               "industry": "FOOD_SERVICE", "reason": "Restaurante que sirve camarones.", "city": ""}]}
 
     def fake_post(url, payload, bearer, timeout=35):
-        calls.append((url, payload, bearer))
+        calls.append((url, payload, bearer, timeout))
         return [{"username": "sushi_real", "fullName": "Sushi Real", "bio": "Sushi en Santiago",
                  "businessCity": "Santiago", "private": False,
                  "recentPosts": [{"caption": "Servimos camarones"}]}]
@@ -196,7 +206,7 @@ def test_mindcase_search_uses_keyword_contract_and_creates_qualified_prospect(mo
     monkeypatch.setattr(discovery, "_ai_json", fake_ai)
     monkeypatch.setattr(discovery, "_post_json", fake_post)
     assert discovery.run_tenant_discovery(tenant) == {"status": "COMPLETED", "created": 1, "profiles_found": 1}
-    assert calls == [(discovery.MINDCASE_PROFILES_URL, {"params": {"query": "sushi Santiago"}}, "test-mindcase-token")]
+    assert calls == [(discovery.MINDCASE_PROFILES_URL, {"params": {"query": "sushi Santiago"}}, "test-mindcase-token", 60)]
     assert Prospect.objects.get(tenant=tenant).city == "Santiago"
     assert DiscoveryRun.objects.get(tenant=tenant).hashtags == ["sushi Santiago"]
 

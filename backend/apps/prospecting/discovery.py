@@ -64,8 +64,14 @@ def _post_json(url, payload, bearer, timeout=35):
                 raise DiscoveryError("OpenAI alcanzó el límite de solicitudes de la API. Revisa los límites del proyecto y vuelve a intentar más tarde.") from error
             raise DiscoveryError("OpenAI respondió HTTP 429. Revisa el saldo, la cuota y los límites de solicitudes de la API.") from error
         raise DiscoveryError(f"{host} respondió HTTP {error.code}.") from error
-    except (URLError, TimeoutError, ValueError) as error:
-        raise DiscoveryError(f"El proveedor no respondió correctamente ({type(error).__name__}).") from error
+    except TimeoutError as error:
+        raise DiscoveryError(f"{urlsplit(url).hostname} agotó el tiempo de espera de {timeout} segundos.") from error
+    except URLError as error:
+        if isinstance(error.reason, TimeoutError):
+            raise DiscoveryError(f"{urlsplit(url).hostname} agotó el tiempo de espera de {timeout} segundos.") from error
+        raise DiscoveryError(f"{urlsplit(url).hostname} no respondió correctamente (URLError).") from error
+    except ValueError as error:
+        raise DiscoveryError(f"{urlsplit(url).hostname} devolvió una respuesta JSON inválida.") from error
 
 
 def _ai_json(system, data):
@@ -153,7 +159,7 @@ def _search_profiles(hashtags):
 
 
 def _search_mindcase_profiles(query):
-    items = _post_json(MINDCASE_PROFILES_URL, {"params": {"query": query}}, os.environ["MINDCASE_API_KEY"], timeout=35)
+    items = _post_json(MINDCASE_PROFILES_URL, {"params": {"query": query}}, os.environ["MINDCASE_API_KEY"], timeout=60)
     return _normalize_mindcase_profiles(items, query)
 
 
