@@ -417,6 +417,9 @@ h1, h2, h3, p { margin-top: 0; }
 .discovery-panel p { max-width: 650px; margin: 0; color: #526a6f; font-size: .84rem; line-height: 1.5; }
 .discovery-panel button { margin-top: 13px; padding: 10px 14px; border: 1px solid #0d766e; border-radius: 9px; color: white; background: #0d766e; font-weight: 800; cursor: pointer; }
 .discovery-panel button:disabled { opacity: .6; cursor: not-allowed; }
+.discovery-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.discovery-panel .discovery-test-button { background: white; color: #0d766e; }
+.discovery-panel .discovery-hint { margin-top: 10px; font-size: .76rem; }
 .discovery-panel-status { display: grid; flex: 0 1 250px; gap: 5px; padding: 12px 15px; border-radius: 10px; background: white; }
 .discovery-panel-status strong { color: #0b665f; font-size: .82rem; }
 .discovery-panel-status span { color: #5b7176; font-size: .73rem; line-height: 1.4; }

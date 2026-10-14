@@ -4,6 +4,7 @@ from .views import (
     GenerateOpportunitiesView,
     DiscoveryStatusView,
     DiscoveryEvaluationListView,
+    ManualDiscoveryView,
     ScheduledDiscoveryView,
     OpportunityDetailView,
     OpportunityListView,
@@ -17,6 +18,7 @@ from .views import (
 urlpatterns = [
     path("discovery/", DiscoveryStatusView.as_view(), name="prospect-discovery-status"),
     path("discovery/evaluations/", DiscoveryEvaluationListView.as_view(), name="prospect-discovery-evaluations"),
+    path("discovery/test/", ManualDiscoveryView.as_view(), name="prospect-discovery-test"),
     path("discovery/run/", ScheduledDiscoveryView.as_view(), name="prospect-discovery-run"),
     path("territories/", TerritoryListCreateView.as_view(), name="territory-list"),
     path("territories/regions/", ChileanRegionListView.as_view(), name="territory-regions"),
