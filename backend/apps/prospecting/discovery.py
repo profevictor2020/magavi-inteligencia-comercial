@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import uuid
 from datetime import timedelta
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -14,7 +15,7 @@ from django.utils import timezone
 from apps.catalog.models import IndustrySegment, Product
 
 from .matching import generate_opportunities
-from .models import DiscoveryRun, Prospect, Territory
+from .models import DiscoveryEvaluation, DiscoveryRun, Prospect, Territory
 from .serializers import normalized_domain
 
 
@@ -270,22 +271,34 @@ def _qualify(profiles, products):
     )
     allowed = {profile["username"] for profile in profiles}
     qualified = {}
+    evaluations = {}
     for item in result.get("prospects", []):
         if not isinstance(item, dict):
             continue
         handle = str(item.get("username", "")).strip().lstrip("@").lower()
+        if handle not in allowed or handle in evaluations:
+            continue
         try:
             score = int(item.get("score", 0))
         except (TypeError, ValueError):
-            continue
-        if handle not in allowed or item.get("relevant") is not True or not 60 <= score <= 100:
-            continue
+            score = None
         reason = str(item.get("reason") or "").strip()[:500]
-        if not reason:
-            continue
-        qualified[handle] = {"score": score, "industry": item.get("industry") if item.get("industry") in IndustrySegment.values else "",
-                             "reason": reason, "city": str(item.get("city") or "")[:120]}
-    return qualified
+        relevant = item.get("relevant") is True
+        if not relevant:
+            decision_reason = reason or "La IA lo marcó como no relevante, sin explicar el motivo."
+        elif score is None or not 0 <= score <= 100:
+            decision_reason = "La IA no entregó un puntaje válido."
+        elif score < 60:
+            decision_reason = f"Puntaje inferior al mínimo de 60/100. {reason}".strip()[:500]
+        elif not reason:
+            decision_reason = "La IA no entregó una razón que justifique la recomendación."
+        else:
+            qualified[handle] = {"score": score, "industry": item.get("industry") if item.get("industry") in IndustrySegment.values else "",
+                                 "reason": reason, "city": str(item.get("city") or "")[:120]}
+            decision_reason = reason
+        evaluations[handle] = {"score": score if score is not None and 0 <= score <= 100 else None,
+                               "reason": decision_reason, "accepted": handle in qualified}
+    return qualified, evaluations
 
 
 def _territory_for(city, territories):
@@ -301,6 +314,7 @@ def _territory_for(city, territories):
 
 def _save_prospects(tenant, profiles, qualified, territories):
     created = 0
+    existing_handles = set()
     existing = {prospect.instagram_handle.lower(): prospect for prospect in Prospect.objects.filter(tenant=tenant).exclude(instagram_handle="")}
     for profile in profiles:
         handle = profile["username"]
@@ -312,6 +326,7 @@ def _save_prospects(tenant, profiles, qualified, territories):
             prospect = next((item for item in Prospect.objects.filter(tenant=tenant, website__icontains="instagram.com")
                              if normalized_domain(item.website) == f"instagram.com/{handle}"), None)
         if prospect:
+            existing_handles.add(handle)
             prospect.instagram_handle = handle
             prospect.discovery_score = result["score"]
             if prospect.source == "Instagram · búsqueda automática":
@@ -327,7 +342,33 @@ def _save_prospects(tenant, profiles, qualified, territories):
             source="Instagram · búsqueda automática", notes=f"Hallazgo automático en Instagram: {result['reason']}"[:2000],
         )
         created += 1
-    return created
+    return created, existing_handles
+
+
+def _record_evaluations(tenant, batch_id, search_term, profiles, decisions, existing_handles):
+    for profile in profiles:
+        handle = profile["username"]
+        evaluation = decisions.get(handle)
+        if evaluation is None:
+            decision = DiscoveryEvaluation.Decision.NOT_EVALUATED
+            score = None
+            reason = "La IA no devolvió una evaluación para este perfil."
+        elif not evaluation["accepted"]:
+            decision = DiscoveryEvaluation.Decision.REJECTED
+            score = evaluation["score"]
+            reason = evaluation["reason"]
+        else:
+            decision = DiscoveryEvaluation.Decision.EXISTING if handle in existing_handles else DiscoveryEvaluation.Decision.CREATED
+            score = evaluation["score"]
+            reason = evaluation["reason"]
+        previous = DiscoveryEvaluation.objects.filter(tenant=tenant, batch_id=batch_id, username=handle).first()
+        if previous and previous.decision == DiscoveryEvaluation.Decision.CREATED and decision == DiscoveryEvaluation.Decision.EXISTING:
+            decision = DiscoveryEvaluation.Decision.CREATED
+        DiscoveryEvaluation.objects.update_or_create(
+            tenant=tenant, batch_id=batch_id, username=handle,
+            defaults={"name": profile["name"], "search_term": search_term[:80],
+                      "decision": decision, "score": score, "reason": reason},
+        )
 
 
 def run_tenant_discovery(tenant, *, force=False):
@@ -347,15 +388,18 @@ def run_tenant_discovery(tenant, *, force=False):
             run.mindcase_submission_attempted = False
             run.mindcase_submitted_at = None
             run.mindcase_last_polled_at = None
+            run.evaluation_batch_id = uuid.uuid4()
         elif (run.mindcase_job_id and run.mindcase_last_polled_at
               and now - run.mindcase_last_polled_at < mindcase_poll_interval()
               and (not run.mindcase_submitted_at or now - run.mindcase_submitted_at < mindcase_max_wait())):
             return {"status": "poll_not_due", "created": 0}
         run.status = DiscoveryRun.Status.RUNNING
+        if not run.evaluation_batch_id:
+            run.evaluation_batch_id = uuid.uuid4()
         run.started_at = now
         run.finished_at = None
         run.error = ""
-        run.save(update_fields=["status", "started_at", "finished_at", "error", "mindcase_job_id", "mindcase_submission_attempted", "mindcase_submitted_at", "mindcase_last_polled_at"])
+        run.save(update_fields=["status", "started_at", "finished_at", "error", "mindcase_job_id", "mindcase_submission_attempted", "mindcase_submitted_at", "mindcase_last_polled_at", "evaluation_batch_id"])
     try:
         products, territories = _catalog_context(tenant)
         if not products:
@@ -400,8 +444,10 @@ def run_tenant_discovery(tenant, *, force=False):
             else:
                 search_terms = _choose_hashtags(products, territories)
                 profiles = _search_profiles(search_terms)
-            qualified = _qualify(profiles, products) if profiles else {}
-            created = _save_prospects(tenant, profiles, qualified, territories)
+            qualified, evaluations = _qualify(profiles, products) if profiles else ({}, {})
+            with transaction.atomic():
+                created, existing_handles = _save_prospects(tenant, profiles, qualified, territories)
+                _record_evaluations(tenant, run.evaluation_batch_id, search_terms[0], profiles, evaluations, existing_handles)
             if created:
                 generate_opportunities(tenant)
             run.status = DiscoveryRun.Status.COMPLETED

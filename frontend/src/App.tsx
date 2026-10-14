@@ -193,6 +193,20 @@ type DiscoveryStatus = {
   mindcase_job_id: string
 }
 
+type DiscoveryEvaluation = {
+  id: string
+  batch_id: string
+  username: string
+  name: string
+  search_term: string
+  decision: 'CREATED' | 'EXISTING' | 'REJECTED' | 'NOT_EVALUATED'
+  score: number | null
+  reason: string
+  evaluated_at: string
+}
+
+type DiscoveryEvaluationPage = { total: number; results: DiscoveryEvaluation[] }
+
 type LoadState<T> = { phase: 'loading' } | { phase: 'ready'; data: T } | { phase: 'error' }
 
 const jsonHeaders = { Accept: 'application/json' }
@@ -798,6 +812,23 @@ function MarketingProductCard({ product, canEdit, csrfToken, onUpdated, onToggle
   </article>
 }
 
+function DiscoveryEvaluationPanel({ rows, total, onLoadMore }: { rows: DiscoveryEvaluation[]; total: number; onLoadMore: () => void }) {
+  const labels: Record<DiscoveryEvaluation['decision'], string> = {
+    CREATED: 'Prospecto creado', EXISTING: 'Ya existía', REJECTED: 'No seleccionado', NOT_EVALUATED: 'Sin evaluación de IA',
+  }
+  return <details className="discovery-evaluations">
+    <summary>Perfiles evaluados <span>{total}</span></summary>
+    {total === 0 ? <p>El historial comienza con la próxima búsqueda completada. Las decisiones de búsquedas anteriores no se guardaron.</p> : <>
+      <p>Revisa cada decisión de la búsqueda, incluidas las cuentas no seleccionadas. Los motivos provienen de la evaluación automática y pueden requerir verificación.</p>
+      <div className="discovery-evaluation-grid">{rows.map((row) => <article key={row.id}>
+        <header><div><strong>{row.name}</strong><small>@{row.username} · {row.search_term} · {new Date(row.evaluated_at).toLocaleDateString('es-CL')}</small></div><span className={`discovery-decision decision-${row.decision.toLowerCase()}`}>{labels[row.decision]}</span></header>
+        <p>{row.reason}</p><footer><span>{row.score === null ? 'Sin puntaje' : `Afinidad IA ${row.score}/100`}</span><a href={`https://www.instagram.com/${row.username}/`} target="_blank" rel="noopener noreferrer">Ver Instagram ↗</a></footer>
+      </article>)}</div>
+      {rows.length < total && <button type="button" onClick={onLoadMore}>Ver más perfiles</button>}
+    </>}
+  </details>
+}
+
 function PrivateApp() {
   const [state, setState] = useState<LoadState<TenantContext>>({ phase: 'loading' })
   const [categories, setCategories] = useState<Category[]>([])
@@ -807,6 +838,8 @@ function PrivateApp() {
   const [discovery, setDiscovery] = useState<DiscoveryStatus | null>(null)
   const [discoveryBusy, setDiscoveryBusy] = useState(false)
   const [discoveryError, setDiscoveryError] = useState('')
+  const [discoveryEvaluations, setDiscoveryEvaluations] = useState<DiscoveryEvaluation[]>([])
+  const [discoveryEvaluationTotal, setDiscoveryEvaluationTotal] = useState(0)
   const [prospects, setProspects] = useState<Prospect[]>([])
   const [territories, setTerritories] = useState<Territory[]>([])
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
@@ -868,11 +901,24 @@ function PrivateApp() {
       fetch('/api/prospects/discovery/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
         .then(async (response) => { if (response.ok) setDiscovery(await response.json() as DiscoveryStatus) })
         .catch(() => {})
+      if (activeSection === 'prospects') {
+        fetch('/api/prospects/discovery/evaluations/', { headers: jsonHeaders, credentials: 'same-origin', signal: controller.signal })
+          .then(async (response) => { if (response.ok) { const page = await response.json() as DiscoveryEvaluationPage; if (Array.isArray(page.results) && typeof page.total === 'number') { setDiscoveryEvaluations(page.results); setDiscoveryEvaluationTotal(page.total) } } })
+          .catch(() => {})
+      }
     }
     refresh()
     const interval = activeSection === 'prospects' ? window.setInterval(refresh, 60_000) : undefined
     return () => { controller.abort(); if (interval !== undefined) window.clearInterval(interval) }
   }, [state.phase, activeSection])
+
+  async function loadMoreDiscoveryEvaluations() {
+    const response = await fetch(`/api/prospects/discovery/evaluations/?offset=${discoveryEvaluations.length}`, { headers: jsonHeaders, credentials: 'same-origin' })
+    if (!response.ok) return
+    const page = await response.json() as DiscoveryEvaluationPage
+    setDiscoveryEvaluations((current) => [...current, ...page.results.filter((row) => !current.some((item) => item.id === row.id))])
+    setDiscoveryEvaluationTotal(page.total)
+  }
 
   if (state.phase === 'loading') return <main className="centered-state">Verificando acceso…</main>
   if (state.phase === 'error') {
@@ -1238,6 +1284,7 @@ function PrivateApp() {
         {activeSection === 'prospects' && <section className="catalog-list prospect-list">
           <div className="catalog-list-heading"><div><span className="eyebrow">PROSPECCIÓN</span><h2>Prospectos comerciales</h2></div><strong>{prospects.length}</strong></div>
           <div className="discovery-panel"><div><span className="eyebrow">BÚSQUEDA AUTOMÁTICA</span><h3>Prospectos desde Instagram</h3><p>La IA toma el catálogo y los territorios para buscar negocios, evaluar señales públicas y agregar prospectos pertinentes sin cargar perfiles a mano.</p>{discoveryError && <p className="quote-error" role="alert">{discoveryError}</p>}{canEdit && discovery?.configured && <button type="button" disabled={discoveryBusy || !csrfToken} onClick={() => updateDiscovery(!discovery.enabled)}>{discoveryBusy ? 'Guardando…' : discovery.enabled ? 'Pausar búsqueda automática' : 'Activar búsqueda automática'}</button>}</div><div className="discovery-panel-status">{!discovery ? <strong>Consultando estado…</strong> : !discovery.configured ? <><strong>Pendiente de conexión</strong><span>Faltan credenciales del extractor de Instagram, IA o tarea programada en Render.</span></> : <><strong>{discovery.enabled ? 'Automática activada' : 'Automática pausada'}</strong><span>{({ NOT_STARTED: 'Aún sin búsquedas', RUNNING: 'Buscando perfiles…', PENDING: 'Esperando resultados de Mindcase', COMPLETED: 'Última búsqueda completada', FAILED: 'Última búsqueda fallida', SKIPPED: 'Sin productos para buscar' } as const)[discovery.status]}</span>{discovery.mindcase_job_id && <span>Run ID: {discovery.mindcase_job_id}</span>}{discovery.finished_at && <span>{new Date(discovery.finished_at).toLocaleString('es-CL')} · {discovery.prospects_created} prospectos nuevos de {discovery.profiles_found} perfiles</span>}{discovery.error && <span>{discovery.error}</span>}</>}</div></div>
+          <DiscoveryEvaluationPanel rows={discoveryEvaluations} total={discoveryEvaluationTotal} onLoadMore={loadMoreDiscoveryEvaluations} />
           {canEdit && <form className="prospect-form" onSubmit={createProspect}><label>Nombre comercial<input name="name" required /></label><label>Territorio<select name="territory" defaultValue=""><option value="">Sin asignar</option>{territories.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>Industria<select name="industry" defaultValue=""><option value="">Sin clasificar</option>{industrySegments.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}</select></label><label>Dirección<input name="address" /></label><label>Ciudad o comuna<input name="city" /></label><label>Región<input name="region" /></label><label>Sitio web<input name="website" type="url" /></label><label>Correo<input name="email" type="email" /></label><label>Teléfono<input name="phone" /></label><label>Fuente<input name="source" required /></label><label>Verificado el<input name="verified_at" type="date" /></label><label className="wide-field">Observaciones<textarea name="notes" /></label><button type="submit" disabled={!csrfToken}>Crear prospecto</button></form>}
           <label className="prospect-search">Buscar prospectos<input value={prospectSearch} onChange={(event) => setProspectSearch(event.target.value)} placeholder="Nombre, rubro o ubicación" /></label>
           {prospects.length === 0 ? <p className="empty-catalog">Todavía no hay prospectos.</p> : <div className="prospect-grid">{prospects.filter((prospect) => `${prospect.name} ${prospect.industry_label} ${prospect.city}`.toLowerCase().includes(prospectSearch.toLowerCase())).map((prospect) => <article key={prospect.id}><div className="inquiry-title"><div><strong>{prospect.name}</strong><small>{prospect.industry_label || 'Sin industria'} · {prospect.territory_name || 'Sin territorio'}</small></div>{canEdit ? <select aria-label={`Estado de ${prospect.name}`} value={prospect.status} onChange={(event) => updateProspectStatus(prospect, event.target.value as Prospect['status'])}><option value="NEW">Nuevo</option><option value="REVIEWED">Revisado</option><option value="DISCARDED">Descartado</option></select> : <span>{prospect.status}</span>}</div><p>{prospect.notes || 'Sin observaciones.'}</p><small>Fuente: {prospect.source}{prospect.discovery_score !== null && prospect.discovery_score !== undefined ? ` · Afinidad IA ${prospect.discovery_score}/100` : ''}</small>{prospect.instagram_handle && <p><a href={`https://www.instagram.com/${prospect.instagram_handle}/`} target="_blank" rel="noopener noreferrer">Ver perfil de Instagram ↗</a></p>}{prospect.duplicate_warnings.length > 0 && <p className="duplicate-warning">Posible duplicado: {prospect.duplicate_warnings.map((warning) => warning.name).join(', ')}</p>}</article>)}</div>}
