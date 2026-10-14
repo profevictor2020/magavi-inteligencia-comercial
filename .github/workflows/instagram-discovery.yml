@@ -15,8 +15,8 @@ jobs:
           BASE_URL: ${{ vars.MAGAVI_BASE_URL || 'https://magavi-web-vaaa.onrender.com' }}
         run: |
           if [ -z "$DISCOVERY_TOKEN" ]; then
-            echo 'Instagram discovery is paused until MAGAVI_AUTOMATION_TOKEN is configured.'
-            exit 0
+            echo '::error::Falta el secreto MAGAVI_AUTOMATION_TOKEN en GitHub Actions.'
+            exit 1
           fi
           curl --fail-with-body --silent --show-error --retry 2 --retry-delay 10 \
             --max-time 115 --request POST \

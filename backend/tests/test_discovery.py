@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.catalog.models import Category, IndustrySegment, Product
@@ -86,6 +87,7 @@ def test_discovery_status_is_tenant_private_and_trigger_requires_secret(monkeypa
     enabled = client.patch(status_url, {"enabled": True}, format="json", HTTP_HOST="marina.localhost")
     assert enabled.status_code == 200
     assert enabled.json()["enabled"] is True
+    assert enabled.json()["status"] == "NOT_STARTED"
 
     monkeypatch.setattr(discovery, "_choose_hashtags", lambda products, territories: ["sushisantiago"])
     monkeypatch.setattr(discovery, "_search_profiles", lambda hashtags: [])
@@ -141,6 +143,22 @@ def test_mindcase_search_uses_keyword_contract_and_creates_qualified_prospect(mo
     assert discovery.run_tenant_discovery(tenant) == {"status": "COMPLETED", "created": 1, "profiles_found": 1}
     assert calls == [(discovery.MINDCASE_PROFILES_URL, {"params": {"query": "sushi Santiago"}}, "test-mindcase-token")]
     assert Prospect.objects.get(tenant=tenant).city == "Santiago"
+    assert DiscoveryRun.objects.get(tenant=tenant).hashtags == ["sushi Santiago"]
+
+
+@pytest.mark.django_db
+def test_scheduler_retries_skipped_tenant_when_products_are_ready(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    DiscoveryRun.objects.create(tenant=tenant, enabled=True, status=DiscoveryRun.Status.SKIPPED,
+                                started_at=timezone.now(), finished_at=timezone.now())
+    monkeypatch.setenv("AUTOMATION_TOKEN", "test-automation-token")
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-token")
+    monkeypatch.setattr(discovery, "_choose_mindcase_query", lambda products, territories: "sushi Santiago")
+    monkeypatch.setattr(discovery, "_search_mindcase_profiles", lambda query: [])
+    response = APIClient().post(reverse("prospect-discovery-run"), HTTP_AUTHORIZATION="Bearer test-automation-token", HTTP_HOST="marina.localhost")
+    assert response.status_code == 200
+    assert response.json()["status"] == DiscoveryRun.Status.COMPLETED
     assert DiscoveryRun.objects.get(tenant=tenant).hashtags == ["sushi Santiago"]
 
 

@@ -123,7 +123,7 @@ class DiscoveryStatusView(APIView):
         return Response({
             "configured": configured() and bool(os.getenv("AUTOMATION_TOKEN")),
             "enabled": run.enabled if run else False,
-            "status": run.status if run else "NOT_STARTED",
+            "status": run.status if run and run.started_at else "NOT_STARTED",
             "started_at": run.started_at if run else None,
             "finished_at": run.finished_at if run else None,
             "hashtags": run.hashtags if run else [],
@@ -160,7 +160,8 @@ class ScheduledDiscoveryView(APIView):
         tenant = (Tenant.objects.filter(is_active=True)
                   .filter(discovery_run__enabled=True)
                   .exclude(discovery_run__status=DiscoveryRun.Status.RUNNING, discovery_run__started_at__gte=timezone.now() - timedelta(minutes=10))
-                  .filter(Q(discovery_run__status=DiscoveryRun.Status.FAILED) | Q(discovery_run__finished_at__isnull=True) | Q(discovery_run__finished_at__lt=cutoff))
+                  .filter(Q(discovery_run__status__in=[DiscoveryRun.Status.FAILED, DiscoveryRun.Status.SKIPPED])
+                          | Q(discovery_run__finished_at__isnull=True) | Q(discovery_run__finished_at__lt=cutoff))
                   .order_by("discovery_run__finished_at", "id").first())
         if tenant is None:
             return Response({"status": "no_due_tenants"})
