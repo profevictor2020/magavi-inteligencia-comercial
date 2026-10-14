@@ -139,6 +139,68 @@ def test_mindcase_sdk_column_names_are_normalized():
     assert profiles[0]["posts"] == ["Servimos camarones"]
 
 
+@pytest.mark.django_db
+def test_mindcase_query_rotates_only_through_configured_localities(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    territory = Territory.objects.get(tenant=tenant)
+    territory.region = "Los Lagos"
+    territory.localities = ["Puerto Montt", "Osorno"]
+    territory.save(update_fields=["region", "localities"])
+    product = Product.objects.get(tenant=tenant)
+    calls = []
+
+    def fake_ai(system, data):
+        calls.append(data["location"])
+        return {"buyer_type": "restaurantes de mariscos"}
+
+    monkeypatch.setattr(discovery, "_ai_json", fake_ai)
+    first = discovery._choose_mindcase_query([product], [territory], "cafeterías Chile")
+    second = discovery._choose_mindcase_query([product], [territory], first)
+    assert first == "restaurantes de mariscos Puerto Montt"
+    assert second == "restaurantes de mariscos Osorno"
+    assert calls == ["Puerto Montt", "Osorno"]
+    monkeypatch.setattr(discovery, "_ai_json", lambda system, data: {"buyer_type": "cafeterías Santiago"})
+    with pytest.raises(discovery.DiscoveryError, match="fuera del territorio"):
+        discovery._choose_mindcase_query([product], [territory])
+
+
+@pytest.mark.django_db
+def test_qualification_rejects_profiles_outside_or_without_verified_location(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    territory = Territory.objects.get(tenant=tenant)
+    territory.region = "Los Lagos"
+    territory.localities = ["Puerto Montt", "Osorno"]
+    territory.save(update_fields=["region", "localities"])
+    profiles = [
+        {"username": "local", "bio": "Cafetería en Puerto Montt", "business_city": "", "posts": []},
+        {"username": "santiago", "bio": "Cafetería en Santiago", "business_city": "Santiago", "posts": []},
+        {"username": "sin_ciudad", "bio": "Cafetería chilena", "business_city": "", "posts": []},
+    ]
+    monkeypatch.setattr(discovery, "_ai_json", lambda system, data: {"prospects": [
+        {"username": profile["username"], "relevant": True, "score": 90, "industry": "FOOD_SERVICE",
+         "reason": "Vende café.", "city": city}
+        for profile, city in zip(profiles, ["Puerto Montt", "Santiago", "Puerto Montt"])
+    ]})
+    qualified, decisions = discovery._qualify(profiles, [Product.objects.get(tenant=tenant)], [territory])
+    assert set(qualified) == {"local"}
+    assert decisions["santiago"]["accepted"] is False
+    assert "fuera" in decisions["santiago"]["reason"]
+    assert decisions["sin_ciudad"]["accepted"] is False
+    assert "no aparece" in decisions["sin_ciudad"]["reason"]
+
+
+@pytest.mark.django_db
+def test_discovery_requires_active_territory_before_paid_submission(monkeypatch, discovery_company):
+    tenant, _ = discovery_company
+    Territory.objects.filter(tenant=tenant).update(is_active=False)
+    monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
+    monkeypatch.setattr(discovery, "_post_json", lambda *args, **kwargs: pytest.fail("No se debe cobrar una búsqueda sin territorio"))
+    result = discovery.run_tenant_discovery(tenant)
+    assert result["status"] == DiscoveryRun.Status.SKIPPED
+    assert DiscoveryRun.objects.get(tenant=tenant).error == "Crea al menos un territorio activo antes de buscar."
+
+
 def test_ai_json_uses_deepseek_without_openai_key(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -254,8 +316,9 @@ def test_mindcase_job_is_reused_until_results_arrive(monkeypatch, discovery_comp
     calls = []
 
     def fake_ai(system, data):
-        if "clave query" in system:
-            return {"query": "sushi Santiago"}
+        if "clave buyer_type" in system:
+            assert data["location"] == "Santiago"
+            return {"buyer_type": "sushi"}
         assert data["profiles"][0]["bio"] == "Sushi en Santiago"
         assert data["profiles"][0]["posts"] == ["Servimos camarones"]
         return {"prospects": [{"username": "sushi_real", "relevant": True, "score": 85,
@@ -310,7 +373,7 @@ def test_discovery_evaluation_history_records_omissions_and_existing_profiles(mo
     Prospect.objects.create(tenant=tenant, name="Sushi conocido", source="Manual", instagram_handle="conocido")
     monkeypatch.setattr(discovery, "_choose_hashtags", lambda products, territories: ["sushisantiago"])
     monkeypatch.setattr(discovery, "_search_profiles", lambda hashtags: [
-        {"username": handle, "name": handle, "bio": "", "business_category": "", "business_city": "", "business_account": True, "posts": [], "search_terms": hashtags}
+        {"username": handle, "name": handle, "bio": "", "business_category": "", "business_city": "Santiago" if handle in ("conocido", "nuevo") else "", "business_account": True, "posts": [], "search_terms": hashtags}
         for handle in ("conocido", "nuevo", "rechazado", "bajo", "omitido")
     ])
     monkeypatch.setattr(discovery, "_ai_json", lambda system, data: {"prospects": [
@@ -349,7 +412,7 @@ def test_scheduler_retries_skipped_tenant_when_products_are_ready(monkeypatch, d
     monkeypatch.setenv("AUTOMATION_TOKEN", "test-automation-token")
     monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-token")
-    monkeypatch.setattr(discovery, "_choose_mindcase_query", lambda products, territories: "sushi Santiago")
+    monkeypatch.setattr(discovery, "_choose_mindcase_query", lambda products, territories, previous_query="": "sushi Santiago")
     monkeypatch.setattr(discovery, "_start_mindcase_job", lambda query: ("job_12345678", []))
     response = APIClient().post(reverse("prospect-discovery-run"), HTTP_AUTHORIZATION="Bearer test-automation-token", HTTP_HOST="marina.localhost")
     assert response.status_code == 200
@@ -395,7 +458,7 @@ def test_unconfirmed_mindcase_submission_pauses_and_cannot_resubmit(monkeypatch,
     monkeypatch.setenv("MINDCASE_API_KEY", "test-mindcase-token")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-deepseek-token")
     monkeypatch.setenv("AUTOMATION_TOKEN", "test-automation-token")
-    monkeypatch.setattr(discovery, "_choose_mindcase_query", lambda products, territories: "sushi Santiago")
+    monkeypatch.setattr(discovery, "_choose_mindcase_query", lambda products, territories, previous_query="": "sushi Santiago")
     calls = []
 
     def fail_start(query):
