@@ -17,7 +17,10 @@ from apps.tenancy.permissions import TenantRolePermission
 from .discovery import DiscoveryError, configured, mindcase_poll_interval, run_tenant_discovery
 from .chile import REGIONS
 from .matching import generate_opportunities
-from .models import DiscoveryEvaluation, DiscoveryRun, Opportunity, Prospect, Territory
+from .models import DiscoveryEvaluation, DiscoveryJob, DiscoveryRun, Opportunity, Prospect, Territory
+from .google_places import PlacesProviderError
+from .place_categories import CATEGORY_FAMILIES
+from .places_search import daily_limit, searches_today, serialize_job, start_places_search
 from .serializers import OpportunitySerializer, ProspectSerializer, TerritorySerializer
 from .territory_matching import assign_unassigned_prospects
 
@@ -102,6 +105,36 @@ class ProspectListCreateView(ProspectMixin, ListCreateAPIView):
 
 class ProspectDetailView(ProspectMixin, RetrieveUpdateDestroyAPIView):
     pass
+
+
+class PlacesSearchView(APIView):
+    permission_classes = [TenantRolePermission]
+
+    def get(self, request):
+        jobs = (DiscoveryJob.objects.filter(tenant=request.tenant)
+                .prefetch_related("observations")[:20])
+        return Response({
+            "configured": bool(os.getenv("MINDCASE_API_KEY")),
+            "daily_limit": daily_limit(), "searches_today": searches_today(request.tenant),
+            "categories": [{"code": code, "label": rule["label"]}
+                           for code, rule in CATEGORY_FAMILIES.items()],
+            "jobs": [serialize_job(job) for job in jobs],
+        })
+
+    def post(self, request):
+        data = request.data
+        if not isinstance(data, dict):
+            return Response({"detail": "La búsqueda debe ser un objeto JSON."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            job, cached = start_places_search(
+                request.tenant, data.get("territory"), keywords=data.get("keywords"),
+                locality=data.get("locality"), category_families=data.get("category_families"),
+            )
+        except PlacesProviderError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        return Response({"cached": cached, "job": serialize_job(job)},
+                        status=status.HTTP_200_OK if cached or job.status == DiscoveryJob.Status.COMPLETED
+                        else status.HTTP_502_BAD_GATEWAY)
 
 
 class OpportunityListView(ListCreateAPIView):

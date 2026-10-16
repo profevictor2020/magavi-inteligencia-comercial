@@ -1,18 +1,23 @@
 """Places fixtures mirror the observed Mindcase export, with invented business data."""
 
 import json
+from decimal import Decimal
 from io import BytesIO
 from urllib.error import HTTPError
 
 import pytest
 from django.core.exceptions import ValidationError
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.prospecting.google_places import GoogleMapsPlacesProvider, PlacesProviderError, normalize_place
 from apps.prospecting.models import (
     DiscoveryJob, DiscoveryObservation, GooglePlaceRecord, Prospect, SocialIdentity, Territory,
 )
 from apps.prospecting.places_ingestion import ingest_places_results, prepare_places_job, record_social_candidate
-from apps.tenancy.models import Tenant
+from apps.prospecting.places_search import start_places_search
+from apps.tenancy.models import Membership, Tenant, TenantDomain
 
 
 @pytest.fixture
@@ -73,7 +78,7 @@ def test_provider_uses_bearer_and_parses_array_without_live_request(monkeypatch,
 
     monkeypatch.setattr("apps.prospecting.google_places.urlopen", fake_open)
     result = GoogleMapsPlacesProvider().run_sync(keywords="cafeterías", location="Puerto Montt, Los Lagos, Chile")
-    assert result[0].place_id == "synthetic-place-1"
+    assert result[0]["placeId"] == "synthetic-place-1"
     assert captured["url"].endswith("/v1/data/google-maps/places/run?wait=true")
     assert captured["authorization"] == "Bearer mock-key-not-real"
     assert captured["payload"]["params"]["maxImages"] == 0
@@ -323,3 +328,81 @@ def test_malformed_row_is_recorded_and_empty_export_completes(places_setup):
     assert ingest_places_results(tenant, empty_job.id, []) == {"created": 0, "existing": 0, "rejected": 0}
     empty_job.refresh_from_db()
     assert empty_job.status == DiscoveryJob.Status.COMPLETED
+
+
+@pytest.mark.django_db
+def test_manual_search_imports_once_and_reuses_recent_result(monkeypatch, places_setup, place_row):
+    tenant, _, territory, _ = places_setup
+    monkeypatch.setenv("MINDCASE_API_KEY", "fake-key")
+    calls = []
+
+    def fake_run(self, **kwargs):
+        calls.append(kwargs)
+        return [place_row]
+
+    monkeypatch.setattr(GoogleMapsPlacesProvider, "run_sync", fake_run)
+    job, cached = start_places_search(tenant, territory.id, keywords="cafeterías", locality="Puerto Montt")
+    assert not cached and job.status == DiscoveryJob.Status.COMPLETED
+    assert job.results_count == 1 and job.estimated_cost_usd == Decimal("0.004")
+    assert job.actual_cost_usd is None
+    assert Prospect.objects.filter(tenant=tenant, instagram_handle="").count() == 1
+    same, cached = start_places_search(tenant, territory.id, keywords="cafeterías", locality="Puerto Montt")
+    assert cached and same.id == job.id and len(calls) == 1
+
+
+@pytest.mark.django_db
+def test_uncertain_submission_blocks_followup_without_second_post(monkeypatch, places_setup):
+    tenant, _, territory, _ = places_setup
+    monkeypatch.setenv("MINDCASE_API_KEY", "fake-key")
+    calls = []
+
+    def fake_run(self, **kwargs):
+        calls.append(kwargs)
+        raise PlacesProviderError("Sin confirmación", submission_uncertain=True)
+
+    monkeypatch.setattr(GoogleMapsPlacesProvider, "run_sync", fake_run)
+    job, _ = start_places_search(tenant, territory.id, keywords="cafeterías", locality="Puerto Montt")
+    assert job.status == DiscoveryJob.Status.FAILED and job.submission_uncertain
+    with pytest.raises(PlacesProviderError, match="Run History"):
+        start_places_search(tenant, territory.id, keywords="panaderías", locality="Puerto Montt")
+    assert len(calls) == 1
+
+
+@pytest.mark.django_db
+def test_daily_cap_and_tenant_scope_before_paid_request(monkeypatch, places_setup):
+    tenant, other, territory, _ = places_setup
+    monkeypatch.setenv("MINDCASE_API_KEY", "fake-key")
+    monkeypatch.setenv("MAPS_DAILY_MAX_RUNS", "1")
+    existing = DiscoveryJob.objects.create(tenant=tenant, territory=territory, keywords="cafeterías",
+                                           location="Puerto Montt, Los Lagos, Chile", max_results=1,
+                                           submitted_at=timezone.now(), status=DiscoveryJob.Status.COMPLETED)
+    with pytest.raises(PlacesProviderError, match="límite diario"):
+        start_places_search(tenant, territory.id, keywords="panaderías", locality="Puerto Montt")
+    existing.submitted_at = None
+    existing.save(update_fields=["submitted_at"])
+    with pytest.raises(PlacesProviderError, match="territorio"):
+        start_places_search(other, territory.id, keywords="cafeterías", locality="Puerto Montt")
+
+
+@pytest.mark.django_db
+def test_maps_route_requires_tenant_editor_and_exposes_observation(monkeypatch, places_setup, place_row):
+    tenant, _, territory, _ = places_setup
+    TenantDomain.objects.create(tenant=tenant, hostname="maps.localhost", is_primary=True, is_verified=True)
+    owner = get_user_model().objects.create_user("maps-owner", "maps-owner@example.test", "password")
+    viewer = get_user_model().objects.create_user("maps-viewer", "maps-viewer@example.test", "password")
+    Membership.objects.create(tenant=tenant, user=owner, role=Membership.Role.OWNER)
+    Membership.objects.create(tenant=tenant, user=viewer, role=Membership.Role.VIEWER)
+    monkeypatch.setenv("MINDCASE_API_KEY", "fake-key")
+    monkeypatch.setattr(GoogleMapsPlacesProvider, "run_sync", lambda self, **kwargs: [place_row])
+    url = "/api/prospects/places/"
+    body = {"territory": str(territory.id), "locality": "Puerto Montt", "keywords": "cafeterías",
+            "category_families": ["cafe"]}
+    viewer_client = APIClient()
+    viewer_client.force_authenticate(user=viewer)
+    assert viewer_client.post(url, body, format="json", HTTP_HOST="maps.localhost").status_code == 403
+    owner_client = APIClient()
+    owner_client.force_authenticate(user=owner)
+    response = owner_client.post(url, body, format="json", HTTP_HOST="maps.localhost")
+    assert response.status_code == 200
+    assert response.json()["job"]["observations"][0]["decision"] == "CREATED"
+    assert viewer_client.get(url, HTTP_HOST="maps.localhost").json()["jobs"][0]["results_count"] == 1
