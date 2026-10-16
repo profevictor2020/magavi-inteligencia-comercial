@@ -1,4 +1,4 @@
-"""Mindcase Google Maps Places adapter. No scheduled or user-facing execution in Phase 1."""
+"""Mindcase Google Maps Places adapter for bounded, explicit requests."""
 
 import json
 import os
@@ -104,7 +104,7 @@ def normalize_place(row):
 
 
 class GoogleMapsPlacesProvider:
-    """Synchronous endpoint verified in the playground; not wired to app routes."""
+    """Synchronous endpoint verified in the playground."""
 
     @staticmethod
     def payload(*, keywords, location, max_results=1):
@@ -125,8 +125,7 @@ class GoogleMapsPlacesProvider:
     def run_sync(self, *, keywords, location, max_results=1):
         """One explicit POST; an uncertain outcome must be reconciled, never retried.
 
-        Phase 1 does not invoke this from a view or scheduler. A timeout or
-        malformed 200 response may still represent a charged provider run.
+        A timeout or malformed 200 response may still represent a charged run.
         """
         payload = self.payload(keywords=keywords, location=location, max_results=max_results)
         key = os.getenv("MINDCASE_API_KEY")
@@ -148,7 +147,8 @@ class GoogleMapsPlacesProvider:
             raise PlacesProviderError("Mindcase devolvió JSON inválido; revisa Run History antes de reintentar.",
                                       submission_uncertain=True) from error
         try:
-            return self.normalize_results(data)
+            self.normalize_results(data)
+            return data
         except PlacesProviderError as error:
             raise PlacesProviderError("Mindcase devolvió un formato inesperado; revisa Run History antes de reintentar.",
                                       submission_uncertain=True) from error

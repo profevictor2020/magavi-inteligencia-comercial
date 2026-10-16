@@ -113,7 +113,7 @@ class DiscoveryEvaluation(models.Model):
 
 
 class DiscoveryJob(models.Model):
-    """A Places request ledger; Phase 1 does not submit or poll these jobs."""
+    """Tenant-scoped ledger for one bounded Places request."""
 
     class Status(models.TextChoices):
         PREPARED = "PREPARED", "Preparado"
@@ -138,6 +138,7 @@ class DiscoveryJob(models.Model):
     estimated_cost_usd = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
     actual_cost_usd = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
     error = models.CharField(max_length=250, blank=True)
+    submission_uncertain = models.BooleanField(default=False)
     submitted_at = models.DateTimeField(null=True, blank=True)
     last_polled_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)

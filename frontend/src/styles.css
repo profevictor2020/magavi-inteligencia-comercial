@@ -380,6 +380,23 @@ h1, h2, h3, p { margin-top: 0; }
 }
 
 .prospect-list { margin-top: 24px; }
+.places-panel { margin-bottom: 24px; padding: 22px; border: 1px solid #c6ddd5; border-radius: 15px; background: #f6faf8; }
+.places-panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.places-panel-heading h3 { margin: 6px 0; }
+.places-panel-heading p, .places-hint { color: #526a6f; font-size: .84rem; line-height: 1.5; }
+.places-panel-heading > span { white-space: nowrap; font-size: .82rem; font-weight: 700; color: #0d766e; }
+.places-search-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 12px; align-items: end; margin-top: 20px; }
+.places-search-form label { display: grid; gap: 6px; font-weight: 700; }
+.places-search-form select { width: 100%; min-height: 44px; padding: 8px; border: 1px solid #cad8d7; border-radius: 9px; background: white; }
+.places-search-form button { min-height: 44px; padding: 8px 18px; border: 0; border-radius: 9px; color: white; background: #0d766e; font-weight: 800; cursor: pointer; }
+.places-search-form button:disabled { opacity: .5; cursor: not-allowed; }
+.places-history { margin-top: 16px; }
+.places-history summary { cursor: pointer; font-weight: 800; }
+.places-history article { display: grid; gap: 5px; padding: 14px 0; border-bottom: 1px solid #dce6e2; }
+.places-history article small { color: #526a6f; }
+.places-history article p { margin: 0; font-size: .84rem; }
+@media (max-width: 900px) { .places-search-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .places-panel-heading { flex-direction: column; } .places-search-form { grid-template-columns: 1fr; } }
 .prospect-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 24px; padding: 20px; border-radius: 12px; background: #f4f7f5; }
 .prospect-form label, .prospect-search { display: grid; gap: 6px; color: #344950; font-size: .8rem; font-weight: 750; }
 .prospect-form input, .prospect-form textarea, .prospect-search input { width: 100%; padding: 10px; border: 1px solid #cad4d7; border-radius: 8px; background: white; }

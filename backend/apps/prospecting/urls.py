@@ -14,9 +14,11 @@ from .views import (
     TerritoryDetailView,
     TerritoryListCreateView,
     ChileanRegionListView,
+    PlacesSearchView,
 )
 
 urlpatterns = [
+    path("places/", PlacesSearchView.as_view(), name="prospect-places-search"),
     path("discovery/", DiscoveryStatusView.as_view(), name="prospect-discovery-status"),
     path("discovery/evaluations/", DiscoveryEvaluationListView.as_view(), name="prospect-discovery-evaluations"),
     path("discovery/test/", ManualDiscoveryView.as_view(), name="prospect-discovery-test"),
